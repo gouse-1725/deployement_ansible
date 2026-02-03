@@ -61,17 +61,36 @@
     name: docker
     state: present
 
-- name: "DOCKER | Add SSH user to docker group"
+- name: "DOCKER | Add SSH user to docker group (if SSH user exists)"
   user:
     name: "{{ lookup('env','SSH_USER') }}"
     groups: docker
     append: true
+  when: lookup('env','SSH_USER') | default('') | length > 0
+  register: user_docker_group
+  failed_when: false
 
-- name: "DOCKER | Notify user re-login required"
+- name: "DOCKER | Add current user to docker group"
+  user:
+    name: "{{ ansible_env.USER }}"
+    groups: docker
+    append: true
+  when: ansible_env.USER != "root"
+  register: current_user_docker_group
+  failed_when: false
+
+- name: "DOCKER | Set docker socket permissions"
+  file:
+    path: /var/run/docker.sock
+    owner: root
+    group: docker
+    mode: "0660"
+
+- name: "DOCKER | Notify about group changes"
   debug:
     msg: >
-      User {{ lookup('env','SSH_USER') }} added to docker group.
-      User must re-login for group change to take effect.
+      Users added to docker group. They must logout and login again
+      for group changes to take effect. Or run: newgrp docker
 
 ############################################################
 # 5. VERIFY DOCKER ACCESS

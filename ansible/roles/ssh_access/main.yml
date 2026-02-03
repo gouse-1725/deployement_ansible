@@ -47,12 +47,17 @@
 # 4. CREATE SSH USER
 ############################################################
 
+- name: "SSH | Check if SSH_USER is defined"
+  set_fact:
+    ssh_user_defined: "{{ lookup('env','SSH_USER') | default('') | length > 0 }}"
+
 - name: "SSH | Ensure SSH user exists"
   user:
     name: "{{ lookup('env','SSH_USER') }}"
     shell: /bin/bash
     create_home: true
     state: present
+  when: ssh_user_defined | bool
 
 ############################################################
 # 5. PREPARE .ssh DIRECTORY
@@ -65,6 +70,7 @@
     owner: "{{ lookup('env','SSH_USER') }}"
     group: "{{ lookup('env','SSH_USER') }}"
     mode: "0700"
+  when: ssh_user_defined | bool
 
 ############################################################
 # 6. VALIDATE KEYS DIRECTORY
@@ -74,13 +80,27 @@
   stat:
     path: "{{ lookup('env','SSH_KEYS_DIR') }}"
   register: ssh_keys_dir
+  when: ssh_user_defined | bool
 
-- name: "SSH | Fail if SSH_KEYS_DIR does not exist"
-  fail:
+- name: "SSH | Create SSH_KEYS_DIR if missing"
+  file:
+    path: "{{ lookup('env','SSH_KEYS_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - ssh_user_defined | bool
+    - not ssh_keys_dir.stat.exists
+
+- name: "SSH | Warning about missing SSH keys"
+  debug:
     msg: >
-      SSH public keys directory not found:
-      {{ lookup('env','SSH_KEYS_DIR') }}
-  when: not ssh_keys_dir.stat.exists
+      WARNING: No SSH keys directory found at {{ lookup('env','SSH_KEYS_DIR') }}.
+      Created empty directory. Please add .pub files manually if needed.
+  when:
+    - ssh_user_defined | bool
+    - not ssh_keys_dir.stat.exists
 
 ############################################################
 # 7. LOAD ALL PUBLIC KEYS
@@ -91,11 +111,14 @@
     paths: "{{ lookup('env','SSH_KEYS_DIR') }}"
     patterns: "*.pub"
   register: pub_keys
+  when: ssh_user_defined | bool
 
-- name: "SSH | Fail if no public keys found"
-  fail:
-    msg: "No public keys (*.pub) found in {{ lookup('env','SSH_KEYS_DIR') }}"
-  when: pub_keys.matched == 0
+- name: "SSH | Warning if no public keys found"
+  debug:
+    msg: "WARNING: No public keys (*.pub) found in {{ lookup('env','SSH_KEYS_DIR') }}"
+  when:
+    - ssh_user_defined | bool
+    - pub_keys.matched == 0
 
 ############################################################
 # 8. INSTALL AUTHORIZED KEYS
@@ -107,6 +130,9 @@
     key: "{{ lookup('file', item.path) }}"
     state: present
   loop: "{{ pub_keys.files }}"
+  when:
+    - ssh_user_defined | bool
+    - pub_keys.matched > 0
 
 ############################################################
 # 9. FIX PERMISSIONS (CRITICAL)
@@ -118,6 +144,9 @@
     owner: "{{ lookup('env','SSH_USER') }}"
     group: "{{ lookup('env','SSH_USER') }}"
     mode: "0600"
+  when:
+    - ssh_user_defined | bool
+    - pub_keys.matched > 0
 
 ############################################################
 # 10. VALIDATE SSH DAEMON CONFIG
@@ -138,5 +167,5 @@
       - "OpenSSH server: OK"
       - "SSH service running: OK"
       - "SSH port listening: OK"
-      - "User '{{ lookup('env','SSH_USER') }}' configured"
-      - "Developer keys installed: {{ pub_keys.matched }}"
+      - "User '{{ lookup('env','SSH_USER') }}' configured: {{ ssh_user_defined }}"
+      - "Developer keys installed: {{ pub_keys.matched if ssh_user_defined else 0 }}"

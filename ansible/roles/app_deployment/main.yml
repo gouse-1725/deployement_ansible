@@ -41,19 +41,70 @@
     group: root
     mode: "0755"
 
+- name: "APP | Ensure log directories exist with proper permissions"
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    recurse: yes
+  loop:
+    - "{{ lookup('env','APP_LOG_DIR') }}"
+    - "{{ lookup('env','DZI_LOG_DIR') }}"
+
+- name: "APP | Ensure MinIO directories exist with proper permissions"
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    recurse: yes
+  loop:
+    - "{{ lookup('env','MINIO_DATA_DIR') }}"
+    - "{{ lookup('env','MINIO_CERTS_DIR') }}"
+    - "{{ lookup('env','MINIO_CONFIG_DIR') }}"
+
 ############################################################
-# 3. DOCKER REGISTRY LOGIN (OPTIONAL)
+# 3. DOCKER REGISTRY LOGIN (NON-INTERACTIVE)
 ############################################################
 # Handles private Docker images non-interactively
+
+- name: "APP | Check if Docker credentials are provided"
+  set_fact:
+    docker_creds_available: "{{ (lookup('env','DOCKER_USERNAME') | default('') | length > 0) and (lookup('env','DOCKER_PASSWORD') | default('') | length > 0) }}"
 
 - name: "APP | Login to Docker registry (if credentials provided)"
   docker_login:
     registry_url: "{{ lookup('env','DOCKER_REGISTRY') | default('docker.io') }}"
     username: "{{ lookup('env','DOCKER_USERNAME') }}"
     password: "{{ lookup('env','DOCKER_PASSWORD') }}"
-  when:
-    - lookup('env','DOCKER_USERNAME') | default('') | length > 0
-    - lookup('env','DOCKER_PASSWORD') | default('') | length > 0
+    reauthorize: yes
+  when: docker_creds_available | bool
+  no_log: true
+  register: docker_login_result
+  failed_when: false
+
+- name: "APP | Docker login status"
+  debug:
+    msg: >
+      Docker registry login: {{
+        'Success' if (docker_creds_available | bool and docker_login_result.failed == false)
+        else 'Skipped (using public images or already logged in)'
+      }}
+
+- name: "APP | Pull images manually if login was successful or creds not needed"
+  command: docker pull {{ item }}
+  loop:
+    - "{{ lookup('env','APP_IMAGE') }}"
+    - "{{ lookup('env','DB_IMAGE') }}"
+    - "{{ lookup('env','DZI_IMAGE') }}"
+    - "{{ lookup('env','MINIO_IMAGE') }}"
+  register: pull_result
+  failed_when: false
+  changed_when: pull_result.rc == 0
+  when: lookup('env','DOCKER_COMPOSE_PULL') | default('true') | lower == 'true'
 
 ############################################################
 # 4. RENDER DOCKER COMPOSE FILE
@@ -68,28 +119,31 @@
     mode: "0644"
 
 ############################################################
-# 5. PULL DOCKER IMAGES (CONFIG CONTROLLED)
+# 5. STOP EXISTING CONTAINERS (CLEAN START)
 ############################################################
 
-- name: "APP | Pull Docker images (if enabled)"
-  command: docker compose pull
+- name: "APP | Stop any existing containers"
+  command: docker compose down
   args:
     chdir: "{{ lookup('env','INSTALL_DIR') }}"
-  when: lookup('env','DOCKER_COMPOSE_PULL') | default('true') | lower == 'true'
-  register: docker_pull
-  failed_when: docker_pull.rc != 0
+  register: docker_down
+  failed_when: false
+  changed_when: docker_down.rc == 0
 
 ############################################################
-# 6. BUILD & START CONTAINERS (CONFIG CONTROLLED)
+# 6. BUILD & START CONTAINERS (NON-INTERACTIVE)
 ############################################################
 
-- name: "APP | Build and start containers"
+- name: "APP | Build and start containers with docker compose"
   command: >
     docker compose up
     {{ '--build' if lookup('env','DOCKER_FORCE_REBUILD') | default('false') | lower == 'true' else '' }}
+    --remove-orphans
     -d
   args:
     chdir: "{{ lookup('env','INSTALL_DIR') }}"
+  environment:
+    DOCKER_CLI_HINTS: "false"
   register: docker_up
   failed_when: docker_up.rc != 0
 

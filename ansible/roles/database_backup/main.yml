@@ -111,3 +111,18 @@
     minute: "0"
     hour: "{{ lookup('env','DB_BACKUP_TIME').split(':')[0] }}"
     job: "/usr/local/bin/pathflowdx_db_backup.sh >> /var/log/pathflowdx_db_backup.log 2>&1"
+    user: root
+    state: present
+
+############################################################
+# 7. FINAL STATUS
+############################################################
+
+- name: "DB BACKUP | Database backup configuration completed"
+  debug:
+    msg:
+      - "Backup directory created: {{ lookup('env','DB_BACKUP_DIR') }}"
+      - "Backup script installed: /usr/local/bin/pathflowdx_db_backup.sh"
+      - "Backup schedule: Daily at {{ lookup('env','DB_BACKUP_TIME') }}"
+      - "Retention: {{ lookup('env','DB_BACKUP_RETENTION_DAYS') }} days"
+      - "Initial backup test: Completed"

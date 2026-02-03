@@ -20,6 +20,15 @@
   ##########################################################
   pre_tasks:
 
+    - name: "PRECHECK | Verify running as root or with sudo"
+      assert:
+        that:
+          - ansible_user_uid == 0 or ansible_env.SUDO_USER is defined
+        fail_msg: >
+          This playbook must be run with sudo privileges.
+          Run: sudo ansible-playbook main-playbook.yml
+        success_msg: "Running with appropriate privileges"
+
     - name: "PRECHECK | Ensure config variables are available"
       assert:
         that:
@@ -30,6 +39,29 @@
           Required environment variables are missing.
           Ensure bootstrap.sh exported config.env correctly.
         success_msg: "Environment variables validated"
+
+    - name: "PRECHECK | Check available disk space"
+      shell: df -BG {{ lookup('env','INSTALL_DIR') | dirname }} | tail -1 | awk '{print $4}' | sed 's/G//'
+      register: disk_space
+      changed_when: false
+
+    - name: "PRECHECK | Ensure minimum 10GB disk space available"
+      assert:
+        that:
+          - disk_space.stdout | int >= 10
+        fail_msg: >
+          Insufficient disk space. At least 10GB required.
+          Available: {{ disk_space.stdout }}GB
+        success_msg: "Disk space check passed"
+
+    - name: "PRECHECK | Check system memory"
+      assert:
+        that:
+          - ansible_memtotal_mb >= 2048
+        fail_msg: >
+          Insufficient RAM. At least 2GB required.
+          Available: {{ ansible_memtotal_mb }}MB
+        success_msg: "Memory check passed"
 
   ##########################################################
   # INFRA SETUP

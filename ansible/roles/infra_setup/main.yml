@@ -202,10 +202,111 @@
   pip:
     name:
       - docker
+      - docker-compose
     state: present
 
 ############################################################
-# 11. FINAL SUMMARY
+# 11. CREATE REQUIRED DIRECTORIES WITH PERMISSIONS
+############################################################
+
+- name: "INFRA | Create installation base directory"
+  file:
+    path: "{{ lookup('env','INSTALL_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "INFRA | Create log directories"
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    recurse: yes
+  loop:
+    - "{{ lookup('env','LOG_BASE_DIR') }}"
+    - "{{ lookup('env','APP_LOG_DIR') }}"
+    - "{{ lookup('env','DZI_LOG_DIR') }}"
+
+- name: "INFRA | Create MinIO data and config directories"
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    recurse: yes
+  loop:
+    - "{{ lookup('env','MINIO_DATA_DIR') }}"
+    - "{{ lookup('env','MINIO_CERTS_DIR') }}"
+    - "{{ lookup('env','MINIO_CONFIG_DIR') }}"
+
+- name: "INFRA | Create backup directories"
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ lookup('env','BACKUP_BASE_DIR') }}"
+    - "{{ lookup('env','DB_BACKUP_DIR') }}"
+    - "{{ lookup('env','LOG_BACKUP_DIR') }}"
+
+- name: "INFRA | Create SSH keys directory"
+  file:
+    path: "{{ lookup('env','SSH_KEYS_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+############################################################
+# 12. CONFIGURE FIREWALL (UFW)
+############################################################
+
+- name: "INFRA | Install UFW firewall"
+  apt:
+    name: ufw
+    state: present
+
+- name: "INFRA | Allow SSH through firewall"
+  ufw:
+    rule: allow
+    port: "{{ lookup('env','SSH_PORT') | default('22') }}"
+    proto: tcp
+  when: lookup('env','ENABLE_FIREWALL') | default('false') | lower == 'true'
+
+- name: "INFRA | Allow HTTP through firewall"
+  ufw:
+    rule: allow
+    port: "{{ lookup('env','NGINX_HTTP_PORT') | default('80') }}"
+    proto: tcp
+  when: lookup('env','ENABLE_FIREWALL') | default('false') | lower == 'true'
+
+- name: "INFRA | Allow HTTPS through firewall"
+  ufw:
+    rule: allow
+    port: "{{ lookup('env','NGINX_HTTPS_PORT') | default('443') }}"
+    proto: tcp
+  when: lookup('env','ENABLE_FIREWALL') | default('false') | lower == 'true'
+
+- name: "INFRA | Allow MinIO SSL through firewall"
+  ufw:
+    rule: allow
+    port: "{{ lookup('env','MINIO_SSL_PORT') | default('9009') }}"
+    proto: tcp
+  when: lookup('env','ENABLE_FIREWALL') | default('false') | lower == 'true'
+
+- name: "INFRA | Enable UFW firewall"
+  ufw:
+    state: enabled
+  when: lookup('env','ENABLE_FIREWALL') | default('false') | lower == 'true'
+
+############################################################
+# 13. FINAL SUMMARY
 ############################################################
 
 - name: "INFRA | Infrastructure setup completed"
@@ -217,3 +318,6 @@
       - "Nginx: OK"
       - "Certbot: OK"
       - "SSH service: OK"
+      - "Python Docker SDK: OK"
+      - "Required directories created: OK"
+      - "Firewall configured: {{ lookup('env','ENABLE_FIREWALL') | default('false') }}"
