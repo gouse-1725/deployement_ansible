@@ -101,26 +101,59 @@
   set_fact:
     docker_creds_available: "{{ (lookup('env','DOCKER_USERNAME') | default('') | length > 0) and (lookup('env','DOCKER_PASSWORD') | default('') | length > 0) }}"
 
-- name: "APP | Login to Docker registry (if credentials provided)"
-  docker_login:
-    registry_url: "{{ lookup('env','DOCKER_REGISTRY') | default('docker.io') }}"
-    username: "{{ lookup('env','DOCKER_USERNAME') }}"
-    password: "{{ lookup('env','DOCKER_PASSWORD') }}"
-    reauthorize: yes
+- name: "APP | Verify docker group and permissions"
+  block:
+    - name: "APP | Check docker socket permissions"
+      file:
+        path: /var/run/docker.sock
+        owner: root
+        group: docker
+        mode: "0660"
+      ignore_errors: yes
+
+    - name: "APP | Test docker access without sudo"
+      command: docker info
+      register: docker_access_test
+      failed_when: false
+      changed_when: false
+
+    - name: "APP | Warning about docker permissions"
+      debug:
+        msg: "WARNING: Docker access test failed. Will use sudo for docker commands."
+      when: docker_access_test.rc != 0
+
+- name: "APP | Login to Docker registry using command line"
+  shell: |
+    echo "{{ lookup('env','DOCKER_PASSWORD') }}" | docker login -u "{{ lookup('env','DOCKER_USERNAME') }}" --password-stdin {{ lookup('env','DOCKER_REGISTRY') | default('docker.io') }}
   when: docker_creds_available | bool
   no_log: true
-  register: docker_login_result
+  register: docker_login_cmd
   failed_when: false
+  changed_when: docker_login_cmd.rc == 0
+
+- name: "APP | Check docker login status"
+  fail:
+    msg: |
+      Docker login failed. Please check:
+      1. DOCKER_USERNAME is correct in config.env
+      2. DOCKER_PASSWORD is correct in config.env
+      3. You have access to the repository: {{ lookup('env','APP_IMAGE') }}
+      4. Repository exists and is private (requires login)
+      
+      Error: {{ docker_login_cmd.stderr if docker_login_cmd.stderr is defined else 'Unknown error' }}
+  when: 
+    - docker_creds_available | bool
+    - docker_login_cmd.rc != 0
 
 - name: "APP | Docker login status"
   debug:
     msg: >
       Docker registry login: {{
-        'Success' if (docker_creds_available | bool and docker_login_result.failed == false)
-        else 'Skipped (using public images or already logged in)'
+        'Success' if (docker_creds_available | bool and docker_login_cmd.rc == 0)
+        else 'Skipped (no credentials provided - using public images)'
       }}
 
-- name: "APP | Pull images manually if login was successful or creds not needed"
+- name: "APP | Pull images manually to verify access"
   command: docker pull {{ item }}
   loop:
     - "{{ lookup('env','APP_IMAGE') }}"
@@ -131,6 +164,16 @@
   failed_when: false
   changed_when: pull_result.rc == 0
   when: lookup('env','DOCKER_COMPOSE_PULL') | default('true') | lower == 'true'
+
+- name: "APP | Check if any pulls failed"
+  debug:
+    msg: "WARNING: Failed to pull {{ item.item }}. Error: {{ item.stderr }}"
+  loop: "{{ pull_result.results }}"
+  when: 
+    - lookup('env','DOCKER_COMPOSE_PULL') | default('true') | lower == 'true'
+    - item.rc != 0
+  loop_control:
+    label: "{{ item.item }}"
 
 ############################################################
 # 4. RENDER DOCKER COMPOSE FILE
