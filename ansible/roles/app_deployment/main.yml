@@ -242,9 +242,9 @@
 
     - name: "APP | Check for any remaining processes on critical ports"
       shell: |
-        PORTS=({{ lookup('env','APP_PORT') }} {{ lookup('env','DB_PORT') }} {{ lookup('env','MINIO_PORT') }})
+        PORTS="{{ lookup('env','APP_PORT') }} {{ lookup('env','DB_PORT') }} {{ lookup('env','MINIO_PORT') }}"
         CONFLICTS=""
-        for PORT in "${PORTS[@]}"; do
+        for PORT in $PORTS; do
           PID=$(lsof -ti:$PORT 2>/dev/null || true)
           if [ -n "$PID" ]; then
             PROCESS=$(ps -p $PID -o comm= 2>/dev/null || echo "unknown")
@@ -255,20 +255,24 @@
           echo "$CONFLICTS"
           exit 1
         fi
+      args:
+        executable: /bin/bash
       register: port_conflicts
       failed_when: false
       changed_when: false
 
     - name: "APP | Kill processes using required ports (force)"
       shell: |
-        PORTS=({{ lookup('env','APP_PORT') }} {{ lookup('env','DB_PORT') }} {{ lookup('env','MINIO_PORT') }} {{ lookup('env','MINIO_CONSOLE_PORT') }})
-        for PORT in "${PORTS[@]}"; do
+        PORTS="{{ lookup('env','APP_PORT') }} {{ lookup('env','DB_PORT') }} {{ lookup('env','MINIO_PORT') }} {{ lookup('env','MINIO_CONSOLE_PORT') }}"
+        for PORT in $PORTS; do
           PID=$(lsof -ti:$PORT 2>/dev/null || true)
           if [ -n "$PID" ]; then
             echo "Killing process $PID on port $PORT"
             kill -9 $PID 2>/dev/null || true
           fi
         done
+      args:
+        executable: /bin/bash
       when: port_conflicts.rc != 0
       register: kill_result
 
