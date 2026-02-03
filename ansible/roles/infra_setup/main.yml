@@ -1,0 +1,219 @@
+---
+############################################################
+# ROLE: infra_setup
+#
+# Purpose:
+# - Prepare base OS
+# - Install core infrastructure packages
+# - Ensure required services are enabled & running
+# - Fail early and clearly on unsupported systems
+#
+# Tags:
+# - infra
+############################################################
+
+############################################################
+# 1. FACT VALIDATION
+############################################################
+
+- name: "INFRA | Validate OS family"
+  assert:
+    that:
+      - ansible_system == "Linux"
+      - ansible_os_family == "Debian"
+    fail_msg: >
+      Unsupported system detected.
+      Only Debian/Ubuntu Linux is supported.
+    success_msg: "OS validation successful"
+
+############################################################
+# 2. TIMEZONE CONFIGURATION
+############################################################
+
+- name: "INFRA | Set system timezone"
+  timezone:
+    name: "{{ lookup('env','TIMEZONE') | default('UTC') }}"
+  register: timezone_result
+
+- name: "INFRA | Timezone status"
+  debug:
+    msg: >
+      Timezone {{
+        'updated' if timezone_result.changed
+        else 'already correct'
+      }}
+
+############################################################
+# 3. APT PACKAGE CACHE
+############################################################
+
+- name: "INFRA | Update apt package cache"
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+############################################################
+# 4. BASE SYSTEM PACKAGES
+############################################################
+
+- name: "INFRA | Install base system packages"
+  apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - git
+      - python3
+      - python3-pip
+      - openssh-server
+    state: present
+  register: base_packages
+
+- name: "INFRA | Base packages status"
+  debug:
+    msg: >
+      Base packages {{
+        'installed/updated' if base_packages.changed
+        else 'already present'
+      }}
+
+############################################################
+# 5. DOCKER ENGINE
+############################################################
+
+- name: "INFRA | Check if Docker is installed"
+  command: docker --version
+  register: docker_check
+  failed_when: false
+  changed_when: false
+
+- name: "INFRA | Install Docker engine"
+  apt:
+    name: docker.io
+    state: present
+  when: docker_check.rc != 0
+  register: docker_install
+
+- name: "INFRA | Enable & start Docker service"
+  service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: "INFRA | Docker status"
+  debug:
+    msg: >
+      Docker {{
+        'installed now' if docker_check.rc != 0
+        else 'already installed'
+      }}
+
+############################################################
+# 6. DOCKER COMPOSE (PLUGIN)
+############################################################
+
+- name: "INFRA | Check Docker Compose plugin"
+  command: docker compose version
+  register: compose_check
+  failed_when: false
+  changed_when: false
+
+- name: "INFRA | Install Docker Compose plugin"
+  apt:
+    name: docker-compose-plugin
+    state: present
+  when: compose_check.rc != 0
+  register: compose_install
+
+- name: "INFRA | Docker Compose status"
+  debug:
+    msg: >
+      Docker Compose {{
+        'installed now' if compose_check.rc != 0
+        else 'already installed'
+      }}
+
+############################################################
+# 7. NGINX
+############################################################
+
+- name: "INFRA | Install Nginx"
+  apt:
+    name: nginx
+    state: present
+  register: nginx_install
+
+- name: "INFRA | Enable & start Nginx"
+  service:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: "INFRA | Nginx status"
+  debug:
+    msg: >
+      Nginx {{
+        'installed/started' if nginx_install.changed
+        else 'already running'
+      }}
+
+############################################################
+# 8. CERTBOT
+############################################################
+
+- name: "INFRA | Install Certbot and Nginx plugin"
+  apt:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+  register: certbot_install
+
+- name: "INFRA | Certbot status"
+  debug:
+    msg: >
+      Certbot {{
+        'installed/updated' if certbot_install.changed
+        else 'already present'
+      }}
+
+############################################################
+# 9. SSH SERVICE
+############################################################
+
+- name: "INFRA | Enable & start SSH service"
+  service:
+    name: ssh
+    state: started
+    enabled: true
+
+- name: "INFRA | Verify SSH port is listening"
+  wait_for:
+    port: "{{ lookup('env','SSH_PORT') | default('22') }}"
+    timeout: 10
+
+############################################################
+# 10. PYTHON LIBRARIES FOR ANSIBLE MODULES
+############################################################
+
+- name: "INFRA | Install Python libraries for Docker modules"
+  pip:
+    name:
+      - docker
+    state: present
+
+############################################################
+# 11. FINAL SUMMARY
+############################################################
+
+- name: "INFRA | Infrastructure setup completed"
+  debug:
+    msg:
+      - "Base OS packages: OK"
+      - "Docker engine: OK"
+      - "Docker Compose: OK"
+      - "Nginx: OK"
+      - "Certbot: OK"
+      - "SSH service: OK"

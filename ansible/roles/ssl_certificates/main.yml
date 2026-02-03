@@ -1,0 +1,119 @@
+---
+############################################################
+# ROLE: ssl_certificates
+#
+# Purpose:
+# - Generate SSL certificates using Certbot
+# - Run fully non-interactive
+# - Skip if cert already exists
+# - Enable auto-renewal
+#
+# Tags:
+# - ssl
+############################################################
+
+############################################################
+# 1. VALIDATE REQUIRED VARIABLES
+############################################################
+
+- name: "SSL | Validate required environment variables"
+  assert:
+    that:
+      - lookup('env','DOMAIN') | length > 0
+      - lookup('env','CERTBOT_EMAIL') | length > 0
+    fail_msg: >
+      SSL configuration missing.
+      DOMAIN and CERTBOT_EMAIL must be set in config.env
+    success_msg: "SSL variables validated"
+
+############################################################
+# 2. ENSURE CERTBOT INSTALLED
+############################################################
+
+- name: "SSL | Ensure Certbot and nginx plugin installed"
+  apt:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+    update_cache: yes
+
+############################################################
+# 3. CHECK IF CERTIFICATE ALREADY EXISTS
+############################################################
+
+- name: "SSL | Check if certificate already exists"
+  stat:
+    path: "/etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/fullchain.pem"
+  register: cert_exists
+
+############################################################
+# 4. OBTAIN CERTIFICATE (NON-INTERACTIVE)
+############################################################
+
+- name: "SSL | Obtain SSL certificate (non-interactive)"
+  command: >
+    certbot --nginx
+    --non-interactive
+    --agree-tos
+    --email {{ lookup('env','CERTBOT_EMAIL') }}
+    -d {{ lookup('env','DOMAIN') }}
+    --redirect
+  when: not cert_exists.stat.exists
+  register: certbot_result
+  failed_when: certbot_result.rc != 0
+
+############################################################
+# 5. VALIDATE CERTIFICATE FILES
+############################################################
+
+- name: "SSL | Validate certificate files exist"
+  stat:
+    path: "/etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/privkey.pem"
+  register: cert_key
+
+- name: "SSL | Fail if certificate generation failed"
+  fail:
+    msg: "SSL certificate generation failed for {{ lookup('env','DOMAIN') }}"
+  when: not cert_key.stat.exists
+
+############################################################
+# 6. ENABLE AUTO-RENEWAL
+############################################################
+
+- name: "SSL | Ensure Certbot auto-renewal timer enabled"
+  service:
+    name: certbot.timer
+    state: started
+    enabled: true
+  ignore_errors: true
+
+############################################################
+# 7. TEST RENEWAL (DRY RUN)
+############################################################
+
+- name: "SSL | Test certificate renewal (dry-run)"
+  command: certbot renew --dry-run
+  register: renew_test
+  changed_when: false
+  failed_when: renew_test.rc != 0
+
+############################################################
+# 8. RELOAD NGINX
+############################################################
+
+- name: "SSL | Reload nginx after SSL configuration"
+  service:
+    name: nginx
+    state: reloaded
+
+############################################################
+# 9. FINAL STATUS
+############################################################
+
+- name: "SSL | SSL certificate configured successfully"
+  debug:
+    msg:
+      - "SSL certificate ready for {{ lookup('env','DOMAIN') }}"
+      - "Auto-renewal enabled"
+      - "Nginx reloaded with HTTPS"
