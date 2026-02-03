@@ -30,6 +30,32 @@
     success_msg: "Application environment variables validated"
 
 ############################################################
+# 1.5 NETWORK & DNS CHECKS
+############################################################
+
+- name: "APP | Check and fix DNS resolution"
+  block:
+    - name: "APP | Test DNS resolution"
+      shell: nslookup registry-1.docker.io 8.8.8.8 >/dev/null 2>&1
+      register: dns_test
+      failed_when: false
+      changed_when: false
+
+    - name: "APP | Add Google DNS to resolv.conf if DNS fails"
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver 8.8.8.8"
+        insertbefore: BOF
+      when: dns_test.rc != 0
+
+    - name: "APP | Restart systemd-resolved if available"
+      service:
+        name: systemd-resolved
+        state: restarted
+      when: dns_test.rc != 0
+      ignore_errors: yes
+
+############################################################
 # 2. CREATE INSTALL DIRECTORY
 ############################################################
 
@@ -119,7 +145,28 @@
     mode: "0644"
 
 ############################################################
-# 5. STOP EXISTING CONTAINERS (CLEAN START)
+# 5. PRE-DEPLOYMENT CHECKS
+############################################################
+
+- name: "APP | Check internet connectivity"
+  shell: ping -c 1 8.8.8.8 >/dev/null 2>&1 || ping -c 1 1.1.1.1 >/dev/null 2>&1
+  register: internet_check
+  failed_when: false
+  changed_when: false
+
+- name: "APP | Check Docker Hub DNS resolution"
+  shell: nslookup registry-1.docker.io >/dev/null 2>&1 || host registry-1.docker.io >/dev/null 2>&1
+  register: dns_check
+  failed_when: false
+  changed_when: false
+
+- name: "APP | Warning about connectivity"
+  debug:
+    msg: "WARNING: Internet or DNS issues detected. Will attempt to use cached images."
+  when: internet_check.rc != 0 or dns_check.rc != 0
+
+############################################################
+# 6. STOP EXISTING CONTAINERS (CLEAN START)
 ############################################################
 
 - name: "APP | Stop any existing containers"
@@ -131,7 +178,7 @@
   changed_when: docker_down.rc == 0
 
 ############################################################
-# 6. BUILD & START CONTAINERS (NON-INTERACTIVE)
+# 7. BUILD & START CONTAINERS (WITH RETRY)
 ############################################################
 
 - name: "APP | Build and start containers with docker compose"
@@ -145,10 +192,31 @@
   environment:
     DOCKER_CLI_HINTS: "false"
   register: docker_up
-  failed_when: docker_up.rc != 0
+  retries: 3
+  delay: 10
+  until: docker_up.rc == 0
+  failed_when: false
+
+- name: "APP | Check if docker compose up failed"
+  fail:
+    msg: |
+      Docker Compose failed to start containers.
+      Common causes:
+      1. Network/Internet connectivity issues (check: ping 8.8.8.8)
+      2. DNS resolution issues (check: nslookup registry-1.docker.io)
+      3. Docker Hub rate limiting or timeout
+      
+      Solutions:
+      1. Fix internet connection and retry
+      2. Pre-download images manually: docker pull <image_name>
+      3. Use local registry or pre-loaded images
+      4. Check Docker daemon: sudo systemctl status docker
+      
+      Error: {{ docker_up.stderr }}
+  when: docker_up.rc != 0
 
 ############################################################
-# 7. WAIT FOR APPLICATION PORT
+# 8. WAIT FOR APPLICATION PORT
 ############################################################
 
 - name: "APP | Wait for application to be reachable"
