@@ -89,12 +89,47 @@
   failed_when: false
   changed_when: false
 
-- name: "INFRA | Install Docker engine"
-  apt:
-    name: docker.io
-    state: present
+# Try Docker CE from official repo first
+- block:
+  - name: "INFRA | Add Docker GPG key"
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+    ignore_errors: yes
+
+  - name: "INFRA | Get Ubuntu codename"
+    shell: lsb_release -cs
+    register: ubuntu_codename
+    changed_when: false
+
+  - name: "INFRA | Add Docker repository"
+    apt_repository:
+      repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ubuntu_codename.stdout }} stable"
+      state: present
+      filename: docker
+    ignore_errors: yes
+
+  - name: "INFRA | Update apt cache"
+    apt:
+      update_cache: yes
+
+  - name: "INFRA | Install Docker CE"
+    apt:
+      name:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+      state: present
+    register: docker_ce_install
+  
+  rescue:
+    - name: "INFRA | Fallback - Install Docker.io"
+      apt:
+        name: docker.io
+        state: present
+      register: docker_io_install
+
   when: docker_check.rc != 0
-  register: docker_install
 
 - name: "INFRA | Enable & start Docker service"
   service:
@@ -111,29 +146,43 @@
       }}
 
 ############################################################
-# 6. DOCKER COMPOSE (PLUGIN)
+# 6. DOCKER COMPOSE (PLUGIN OR STANDALONE)
 ############################################################
 
-- name: "INFRA | Check Docker Compose plugin"
-  command: docker compose version
+- name: "INFRA | Check Docker Compose"
+  shell: docker compose version 2>/dev/null || docker-compose version 2>/dev/null || echo "not installed"
   register: compose_check
   failed_when: false
   changed_when: false
 
-- name: "INFRA | Install Docker Compose plugin"
-  apt:
-    name: docker-compose-plugin
-    state: present
-  when: compose_check.rc != 0
-  register: compose_install
+# Try docker-compose-plugin first, then fallback to pip
+- block:
+  - name: "INFRA | Install Docker Compose plugin"
+    apt:
+      name: docker-compose-plugin
+      state: present
+    register: compose_plugin_install
+
+  rescue:
+    - name: "INFRA | Fallback - Install docker-compose via pip"
+      pip:
+        name: docker-compose
+        state: present
+      register: compose_pip_install
+
+    - name: "INFRA | Create docker compose plugin alias"
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/libexec/docker/cli-plugins/docker-compose
+        state: link
+        force: yes
+      ignore_errors: yes
+
+  when: "'not installed' in compose_check.stdout or compose_check.rc != 0"
 
 - name: "INFRA | Docker Compose status"
   debug:
-    msg: >
-      Docker Compose {{
-        'installed now' if compose_check.rc != 0
-        else 'already installed'
-      }}
+    msg: "Docker Compose installed successfully"
 
 ############################################################
 # 7. NGINX
@@ -204,6 +253,23 @@
       - docker
       - docker-compose
     state: present
+
+- name: "INFRA | Create docker CLI plugins directory"
+  file:
+    path: /usr/libexec/docker/cli-plugins
+    state: directory
+    mode: "0755"
+    recurse: yes
+
+- name: "INFRA | Ensure docker-compose is accessible"
+  shell: |
+    if command -v docker-compose >/dev/null 2>&1; then
+      ln -sf $(which docker-compose) /usr/libexec/docker/cli-plugins/docker-compose 2>/dev/null || true
+      ln -sf $(which docker-compose) /usr/local/bin/docker-compose 2>/dev/null || true
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
 
 ############################################################
 # 11. CREATE REQUIRED DIRECTORIES WITH PERMISSIONS
