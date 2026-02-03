@@ -155,8 +155,9 @@
   failed_when: false
   changed_when: false
 
-# Try docker-compose-plugin first, then fallback to pip
+# Try multiple methods to install docker-compose
 - block:
+  # Method 1: Try docker-compose-plugin from Docker repo
   - name: "INFRA | Install Docker Compose plugin"
     apt:
       name: docker-compose-plugin
@@ -164,25 +165,50 @@
     register: compose_plugin_install
 
   rescue:
-    - name: "INFRA | Fallback - Install docker-compose via pip"
-      pip:
-        name: docker-compose
+    # Method 2: Try python3-docker-compose from apt
+    - name: "INFRA | Fallback - Try apt python3-docker-compose"
+      apt:
+        name: python3-docker-compose
         state: present
-      register: compose_pip_install
+      register: compose_apt_install
+      ignore_errors: yes
 
-    - name: "INFRA | Create docker compose plugin alias"
+    # Method 3: Download docker-compose binary directly
+    - name: "INFRA | Fallback - Download docker-compose binary"
+      get_url:
+        url: https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+      when: compose_apt_install.failed | default(false)
+      register: compose_binary_install
+
+    # Method 4: Create docker compose plugin symlink
+    - name: "INFRA | Create docker CLI plugins directory"
+      file:
+        path: /usr/libexec/docker/cli-plugins
+        state: directory
+        mode: "0755"
+        recurse: yes
+      when: compose_binary_install.changed | default(false)
+
+    - name: "INFRA | Create docker compose plugin symlink"
       file:
         src: /usr/local/bin/docker-compose
         dest: /usr/libexec/docker/cli-plugins/docker-compose
         state: link
         force: yes
-      ignore_errors: yes
+      when: compose_binary_install.changed | default(false)
 
   when: "'not installed' in compose_check.stdout or compose_check.rc != 0"
 
+- name: "INFRA | Verify Docker Compose installation"
+  shell: docker compose version 2>/dev/null || docker-compose version
+  register: final_compose_check
+  changed_when: false
+
 - name: "INFRA | Docker Compose status"
   debug:
-    msg: "Docker Compose installed successfully"
+    msg: "Docker Compose installed: {{ final_compose_check.stdout_lines[0] }}"
 
 ############################################################
 # 7. NGINX
@@ -251,8 +277,16 @@
   pip:
     name:
       - docker
-      - docker-compose
     state: present
+    extra_args: --break-system-packages
+  ignore_errors: yes
+  register: pip_docker_install
+
+- name: "INFRA | Fallback - Install python3-docker from apt"
+  apt:
+    name: python3-docker
+    state: present
+  when: pip_docker_install.failed | default(false)
 
 - name: "INFRA | Create docker CLI plugins directory"
   file:
