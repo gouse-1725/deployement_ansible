@@ -208,6 +208,83 @@
     msg: "WARNING: Internet or DNS issues detected. Will attempt to use cached images."
   when: internet_check.rc != 0 or dns_check.rc != 0
 
+- name: "APP | Check for port conflicts"
+  shell: |
+    lsof -i :{{ item.port }} -t 2>/dev/null || netstat -tuln | grep -q ":{{ item.port }}" && echo "in-use" || echo "free"
+  register: port_check
+  changed_when: false
+  failed_when: false
+  loop:
+    - { port: "{{ lookup('env','APP_PORT') }}", name: "Application" }
+    - { port: "{{ lookup('env','DB_PORT') }}", name: "Database" }
+    - { port: "{{ lookup('env','MINIO_PORT') }}", name: "MinIO" }
+    - { port: "{{ lookup('env','MINIO_CONSOLE_PORT') }}", name: "MinIO Console" }
+  loop_control:
+    label: "{{ item.name }} ({{ item.port }})"
+
+- name: "APP | Stop conflicting services on required ports"
+  block:
+    - name: "APP | Detect PostgreSQL service on port 5432"
+      shell: systemctl is-active postgresql 2>/dev/null || echo "not-found"
+      register: postgres_service
+      changed_when: false
+
+    - name: "APP | Stop PostgreSQL service if running"
+      service:
+        name: postgresql
+        state: stopped
+      when: postgres_service.stdout == "active"
+      
+    - name: "APP | Display stopped services"
+      debug:
+        msg: "Stopped PostgreSQL service to free port 5432 for Docker container"
+      when: postgres_service.stdout == "active"
+
+    - name: "APP | Check for any remaining processes on critical ports"
+      shell: |
+        PORTS=({{ lookup('env','APP_PORT') }} {{ lookup('env','DB_PORT') }} {{ lookup('env','MINIO_PORT') }})
+        CONFLICTS=""
+        for PORT in "${PORTS[@]}"; do
+          PID=$(lsof -ti:$PORT 2>/dev/null || true)
+          if [ -n "$PID" ]; then
+            PROCESS=$(ps -p $PID -o comm= 2>/dev/null || echo "unknown")
+            CONFLICTS="$CONFLICTS Port $PORT in use by PID $PID ($PROCESS);"
+          fi
+        done
+        if [ -n "$CONFLICTS" ]; then
+          echo "$CONFLICTS"
+          exit 1
+        fi
+      register: port_conflicts
+      failed_when: false
+      changed_when: false
+
+    - name: "APP | Kill processes using required ports (force)"
+      shell: |
+        PORTS=({{ lookup('env','APP_PORT') }} {{ lookup('env','DB_PORT') }} {{ lookup('env','MINIO_PORT') }} {{ lookup('env','MINIO_CONSOLE_PORT') }})
+        for PORT in "${PORTS[@]}"; do
+          PID=$(lsof -ti:$PORT 2>/dev/null || true)
+          if [ -n "$PID" ]; then
+            echo "Killing process $PID on port $PORT"
+            kill -9 $PID 2>/dev/null || true
+          fi
+        done
+      when: port_conflicts.rc != 0
+      register: kill_result
+
+    - name: "APP | Wait for ports to be released"
+      wait_for:
+        port: "{{ item }}"
+        state: stopped
+        timeout: 10
+      loop:
+        - "{{ lookup('env','APP_PORT') }}"
+        - "{{ lookup('env','DB_PORT') }}"
+        - "{{ lookup('env','MINIO_PORT') }}"
+        - "{{ lookup('env','MINIO_CONSOLE_PORT') }}"
+      ignore_errors: yes
+      when: port_conflicts.rc != 0 or postgres_service.stdout == "active"
+
 ############################################################
 # 6. STOP EXISTING CONTAINERS (CLEAN START)
 ############################################################
@@ -243,19 +320,81 @@
 - name: "APP | Check if docker compose up failed"
   fail:
     msg: |
-      Docker Compose failed to start containers.
-      Common causes:
-      1. Network/Internet connectivity issues (check: ping 8.8.8.8)
-      2. DNS resolution issues (check: nslookup registry-1.docker.io)
-      3. Docker Hub rate limiting or timeout
+      ╔════════════════════════════════════════════════════════════════════╗
+      ║         Docker Compose Failed to Start Containers                 ║
+      ╚════════════════════════════════════════════════════════════════════╝
       
-      Solutions:
-      1. Fix internet connection and retry
-      2. Pre-download images manually: docker pull <image_name>
-      3. Use local registry or pre-loaded images
-      4. Check Docker daemon: sudo systemctl status docker
+      {% if 'address already in use' in docker_up.stderr %}
+      🔴 PORT CONFLICT DETECTED:
       
-      Error: {{ docker_up.stderr }}
+      One or more required ports are already in use by another service.
+      The deployment attempted to automatically stop conflicting services,
+      but some processes are still holding the ports.
+      
+      Common culprits:
+      - PostgreSQL system service on port 5432
+      - Another application on port 8080
+      - Another MinIO instance on port 9000
+      
+      SOLUTION:
+      1. Find which process is using the port:
+         sudo lsof -i :5432
+         sudo lsof -i :8080
+         sudo lsof -i :9000
+      
+      2. Stop the service:
+         sudo systemctl stop postgresql
+         sudo systemctl disable postgresql
+      
+      3. Or kill the process:
+         sudo kill -9 $(lsof -ti:5432)
+      
+      4. Then rerun deployment:
+         sudo bash bootstrap.sh
+      
+      {% elif 'denied' in docker_up.stderr or 'login' in docker_up.stderr %}
+      🔴 DOCKER AUTHENTICATION FAILED:
+      
+      Cannot pull private images. Check your Docker Hub credentials.
+      
+      SOLUTION:
+      1. Update config.env with correct credentials:
+         DOCKER_USERNAME=your_username
+         DOCKER_PASSWORD=your_password_or_token
+      
+      2. Test login manually:
+         echo "YOUR_PASSWORD" | docker login -u YOUR_USERNAME --password-stdin
+      
+      3. Rerun deployment:
+         sudo bash bootstrap.sh
+      
+      {% elif 'timeout' in docker_up.stderr or 'i/o timeout' in docker_up.stderr %}
+      🔴 NETWORK/DNS TIMEOUT:
+      
+      Cannot reach Docker Hub to download images.
+      
+      SOLUTION:
+      1. Check internet connection:
+         ping 8.8.8.8
+      
+      2. Fix DNS:
+         echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+         sudo systemctl restart systemd-resolved
+      
+      3. Rerun deployment:
+         sudo bash bootstrap.sh
+      
+      {% else %}
+      🔴 UNKNOWN ERROR:
+      
+      Docker Compose failed for an unknown reason.
+      
+      {% endif %}
+      
+      Full Error Output:
+      {{ docker_up.stderr }}
+      
+      ════════════════════════════════════════════════════════════════════
   when: docker_up.rc != 0
 
 ############################################################

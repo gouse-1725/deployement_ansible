@@ -52,6 +52,13 @@
       Docker daemon may not be running.
   when: not docker_sock.stat.exists
 
+- name: "DOCKER | Fix Docker socket permissions"
+  file:
+    path: /var/run/docker.sock
+    owner: root
+    group: docker
+    mode: "0660"
+
 ############################################################
 # 4. ADD USER TO DOCKER GROUP
 ############################################################
