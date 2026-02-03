@@ -1,0 +1,126 @@
+---
+############################################################
+# ROLE: log_backup
+#
+# Purpose:
+# - Backup application logs
+# - Compress archived logs
+# - Enforce retention policy
+# - Schedule automated log backups
+#
+# Tags:
+# - backup_logs
+############################################################
+
+############################################################
+# 1. VALIDATE REQUIRED VARIABLES
+############################################################
+
+- name: "LOG BACKUP | Validate required environment variables"
+  assert:
+    that:
+      - lookup('env','LOG_BACKUP_DIR') | length > 0
+      - lookup('env','LOG_BACKUP_RETENTION_DAYS') | length > 0
+      - lookup('env','APP_LOG_DIR') | length > 0
+      - lookup('env','DZI_LOG_DIR') | length > 0
+    fail_msg: >
+      Log backup configuration missing.
+      Ensure LOG_* variables are set in config.env
+    success_msg: "Log backup variables validated"
+
+############################################################
+# 2. CREATE LOG BACKUP DIRECTORY
+############################################################
+
+- name: "LOG BACKUP | Create log backup directory"
+  file:
+    path: "{{ lookup('env','LOG_BACKUP_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+############################################################
+# 3. VERIFY LOG DIRECTORIES EXIST
+############################################################
+
+- name: "LOG BACKUP | Check application log directory"
+  stat:
+    path: "{{ lookup('env','APP_LOG_DIR') }}"
+  register: app_log_dir
+
+- name: "LOG BACKUP | Check DZI log directory"
+  stat:
+    path: "{{ lookup('env','DZI_LOG_DIR') }}"
+  register: dzi_log_dir
+
+- name: "LOG BACKUP | Fail if no log directories exist"
+  fail:
+    msg: "Neither application nor DZI log directories exist. Nothing to back up."
+  when:
+    - not app_log_dir.stat.exists
+    - not dzi_log_dir.stat.exists
+
+############################################################
+# 4. CREATE LOG BACKUP SCRIPT
+############################################################
+
+- name: "LOG BACKUP | Create log backup script"
+  copy:
+    dest: /usr/local/bin/pathflowdx_log_backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+      BACKUP_DIR="{{ lookup('env','LOG_BACKUP_DIR') }}"
+      RETENTION_DAYS={{ lookup('env','LOG_BACKUP_RETENTION_DAYS') }}
+
+      APP_LOG_DIR="{{ lookup('env','APP_LOG_DIR') }}"
+      DZI_LOG_DIR="{{ lookup('env','DZI_LOG_DIR') }}"
+
+      ARCHIVE="$BACKUP_DIR/logs_${TIMESTAMP}.tar.gz"
+
+      echo "[INFO] Starting log backup: $ARCHIVE"
+
+      SOURCES=()
+
+      [[ -d "$APP_LOG_DIR" ]] && SOURCES+=("$APP_LOG_DIR")
+      [[ -d "$DZI_LOG_DIR" ]] && SOURCES+=("$DZI_LOG_DIR")
+
+      if [ "${#SOURCES[@]}" -eq 0 ]; then
+        echo "[WARN] No log directories found. Skipping backup."
+        exit 0
+      fi
+
+      tar -czf "$ARCHIVE" "${SOURCES[@]}"
+
+      echo "[INFO] Log backup completed"
+
+      echo "[INFO] Removing backups older than $RETENTION_DAYS days"
+      find "$BACKUP_DIR" -type f -name "logs_*.tar.gz" -mtime +$RETENTION_DAYS -delete
+
+      echo "[INFO] Log retention cleanup done"
+
+############################################################
+# 5. TEST LOG BACKUP SCRIPT (ONE-TIME)
+############################################################
+
+- name: "LOG BACKUP | Run log backup script once to verify"
+  command: /usr/local/bin/pathflowdx_log_backup.sh
+  register: log_backup_test
+  failed_when: log_backup_test.rc != 0
+
+############################################################
+# 6. CONFIGURE CRON JOB
+############################################################
+
+- name: "LOG BACKUP | Configure daily log backup cron job"
+  cron:
+    name: "PathflowDX Log Backup"
+    minute: "30"
+    hour: "02"
+    job: "/usr/local/bin/pathflowdx_log_backup.sh >> /var/log/pathflowdx_log_backup.log 2>&1"

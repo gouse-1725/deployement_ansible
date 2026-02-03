@@ -1,0 +1,108 @@
+---
+############################################################
+# ROLE: nginx_proxy
+#
+# Purpose:
+# - Install & configure Nginx reverse proxy
+# - Route traffic to Spring Boot app
+# - Prepare HTTPS-ready config (SSL handled separately)
+#
+# Tags:
+# - nginx
+############################################################
+
+############################################################
+# 1. VALIDATE REQUIRED VARIABLES
+############################################################
+
+- name: "NGINX | Validate required environment variables"
+  assert:
+    that:
+      - lookup('env','DOMAIN') | length > 0
+      - lookup('env','APP_PORT') | length > 0
+    fail_msg: >
+      Missing required NGINX variables.
+      Ensure DOMAIN and APP_PORT are set in config.env
+    success_msg: "NGINX variables validated"
+
+############################################################
+# 2. INSTALL NGINX
+############################################################
+
+- name: "NGINX | Ensure Nginx is installed"
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+
+############################################################
+# 3. ENSURE NGINX SERVICE RUNNING
+############################################################
+
+- name: "NGINX | Enable and start Nginx"
+  service:
+    name: nginx
+    state: started
+    enabled: true
+
+############################################################
+# 4. RENDER NGINX CONFIGURATION
+############################################################
+
+- name: "NGINX | Render nginx site configuration"
+  template:
+    src: nginx.conf.j2
+    dest: "/etc/nginx/sites-available/{{ lookup('env','APP_NAME') }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+############################################################
+# 5. ENABLE SITE (SYMLINK)
+############################################################
+
+- name: "NGINX | Enable nginx site"
+  file:
+    src: "/etc/nginx/sites-available/{{ lookup('env','APP_NAME') }}"
+    dest: "/etc/nginx/sites-enabled/{{ lookup('env','APP_NAME') }}"
+    state: link
+    force: true
+
+############################################################
+# 6. DISABLE DEFAULT SITE (OPTIONAL BUT CLEAN)
+############################################################
+
+- name: "NGINX | Disable default nginx site"
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+############################################################
+# 7. VALIDATE NGINX CONFIG
+############################################################
+
+- name: "NGINX | Validate nginx configuration"
+  command: nginx -t
+  register: nginx_test
+  changed_when: false
+  failed_when: nginx_test.rc != 0
+
+############################################################
+# 8. RELOAD NGINX (NO DOWNTIME)
+############################################################
+
+- name: "NGINX | Reload nginx"
+  service:
+    name: nginx
+    state: reloaded
+
+############################################################
+# 9. FINAL STATUS
+############################################################
+
+- name: "NGINX | Reverse proxy configured successfully"
+  debug:
+    msg:
+      - "Nginx installed and running"
+      - "Site enabled for domain {{ lookup('env','DOMAIN') }}"
+      - "Proxying traffic to application port {{ lookup('env','APP_PORT') }}"

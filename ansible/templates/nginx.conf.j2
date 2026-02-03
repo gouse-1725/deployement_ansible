@@ -1,0 +1,76 @@
+#############################################
+# APPLICATION HTTPS
+#############################################
+server {
+    server_name {{ lookup('env','DOMAIN') }};
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ lookup('env','APP_PORT') }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    listen {{ lookup('env','NGINX_HTTPS_PORT') }} ssl;
+    ssl_certificate /etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+}
+
+#############################################
+# HTTP → HTTPS REDIRECT
+#############################################
+server {
+    listen {{ lookup('env','NGINX_HTTP_PORT') }};
+    server_name {{ lookup('env','DOMAIN') }};
+    return 301 https://$host$request_uri;
+}
+
+#############################################
+# MINIO HTTPS (PORT 9009)
+#############################################
+server {
+    listen {{ lookup('env','MINIO_SSL_PORT') }} ssl http2;
+    server_name {{ lookup('env','DOMAIN') }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    access_log /var/log/nginx/pathflowdx_minio_access.log;
+    error_log /var/log/nginx/pathflowdx_minio_error.log;
+
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_max_temp_file_size 0;
+
+    location / {
+
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '$http_origin' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' '$http_access_control_request_headers' always;
+            add_header 'Access-Control-Max-Age' 3600 always;
+            add_header 'Content-Type' 'text/plain; charset=utf-8';
+            add_header 'Content-Length' 0;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:{{ lookup('env','MINIO_PORT') }};
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        proxy_connect_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+    }
+}

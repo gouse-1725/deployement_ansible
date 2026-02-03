@@ -1,0 +1,113 @@
+---
+############################################################
+# ROLE: database_backup
+#
+# Purpose:
+# - PostgreSQL backups (Docker-based)
+# - Compression
+# - Retention cleanup
+# - Scheduled backups via cron
+#
+# Tags:
+# - backup_db
+############################################################
+
+############################################################
+# 1. VALIDATE REQUIRED VARIABLES
+############################################################
+
+- name: "DB BACKUP | Validate required environment variables"
+  assert:
+    that:
+      - lookup('env','DB_CONTAINER_NAME') | length > 0
+      - lookup('env','DB_NAME') | length > 0
+      - lookup('env','DB_USER') | length > 0
+      - lookup('env','DB_PASSWORD') | length > 0
+      - lookup('env','DB_BACKUP_DIR') | length > 0
+      - lookup('env','DB_BACKUP_RETENTION_DAYS') | length > 0
+    fail_msg: >
+      Database backup configuration missing.
+      Ensure DB_* variables are set in config.env
+    success_msg: "Database backup variables validated"
+
+############################################################
+# 2. CREATE BACKUP DIRECTORY
+############################################################
+
+- name: "DB BACKUP | Create database backup directory"
+  file:
+    path: "{{ lookup('env','DB_BACKUP_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+############################################################
+# 3. VERIFY DB CONTAINER IS RUNNING
+############################################################
+
+- name: "DB BACKUP | Verify database container is running"
+  command: docker inspect -f '{{ "{{.State.Running}}" }}' {{ lookup('env','DB_CONTAINER_NAME') }}
+  register: db_container_state
+  changed_when: false
+  failed_when: db_container_state.stdout != "true"
+
+############################################################
+# 4. CREATE BACKUP SCRIPT (IDEMPOTENT)
+############################################################
+
+- name: "DB BACKUP | Create database backup script"
+  copy:
+    dest: /usr/local/bin/pathflowdx_db_backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+      BACKUP_DIR="{{ lookup('env','DB_BACKUP_DIR') }}"
+      RETENTION_DAYS={{ lookup('env','DB_BACKUP_RETENTION_DAYS') }}
+
+      DB_CONTAINER="{{ lookup('env','DB_CONTAINER_NAME') }}"
+      DB_NAME="{{ lookup('env','DB_NAME') }}"
+      DB_USER="{{ lookup('env','DB_USER') }}"
+      DB_PASSWORD="{{ lookup('env','DB_PASSWORD') }}"
+
+      export PGPASSWORD="$DB_PASSWORD"
+
+      BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_${TIMESTAMP}.sql.gz"
+
+      echo "[INFO] Starting PostgreSQL backup: $BACKUP_FILE"
+
+      docker exec "$DB_CONTAINER" \
+        pg_dump -U "$DB_USER" "$DB_NAME" | gzip > "$BACKUP_FILE"
+
+      echo "[INFO] Backup completed"
+
+      echo "[INFO] Cleaning backups older than $RETENTION_DAYS days"
+      find "$BACKUP_DIR" -type f -name "*.sql.gz" -mtime +$RETENTION_DAYS -delete
+
+      echo "[INFO] Backup retention cleanup done"
+  no_log: true   # hides DB password
+
+############################################################
+# 5. TEST BACKUP SCRIPT (ONE-TIME)
+############################################################
+
+- name: "DB BACKUP | Run backup script once to verify"
+  command: /usr/local/bin/pathflowdx_db_backup.sh
+  register: backup_test
+  failed_when: backup_test.rc != 0
+
+############################################################
+# 6. CONFIGURE CRON JOB
+############################################################
+
+- name: "DB BACKUP | Configure daily database backup cron job"
+  cron:
+    name: "PathflowDX PostgreSQL Backup"
+    minute: "0"
+    hour: "{{ lookup('env','DB_BACKUP_TIME').split(':')[0] }}"
+    job: "/usr/local/bin/pathflowdx_db_backup.sh >> /var/log/pathflowdx_db_backup.log 2>&1"

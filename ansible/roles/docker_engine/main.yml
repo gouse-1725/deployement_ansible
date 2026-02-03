@@ -1,0 +1,119 @@
+---
+############################################################
+# ROLE: docker_engine
+#
+# Purpose:
+# - Validate Docker installation
+# - Ensure Docker daemon is running
+# - Configure user permissions
+# - Validate Docker Compose
+# - Create application Docker network
+#
+# Tags:
+# - docker
+############################################################
+
+############################################################
+# 1. VERIFY DOCKER BINARY
+############################################################
+
+- name: "DOCKER | Check Docker binary exists"
+  command: docker --version
+  register: docker_version
+  changed_when: false
+
+- name: "DOCKER | Docker version"
+  debug:
+    msg: "{{ docker_version.stdout }}"
+
+############################################################
+# 2. VERIFY DOCKER DAEMON
+############################################################
+
+- name: "DOCKER | Ensure Docker service is running"
+  service:
+    name: docker
+    state: started
+    enabled: true
+
+############################################################
+# 3. VERIFY DOCKER SOCKET
+############################################################
+
+- name: "DOCKER | Check Docker socket exists"
+  stat:
+    path: /var/run/docker.sock
+  register: docker_sock
+
+- name: "DOCKER | Fail if Docker socket missing"
+  fail:
+    msg: >
+      Docker socket not found.
+      Docker daemon may not be running.
+  when: not docker_sock.stat.exists
+
+############################################################
+# 4. ADD USER TO DOCKER GROUP
+############################################################
+
+- name: "DOCKER | Ensure docker group exists"
+  group:
+    name: docker
+    state: present
+
+- name: "DOCKER | Add SSH user to docker group"
+  user:
+    name: "{{ lookup('env','SSH_USER') }}"
+    groups: docker
+    append: true
+
+- name: "DOCKER | Notify user re-login required"
+  debug:
+    msg: >
+      User {{ lookup('env','SSH_USER') }} added to docker group.
+      User must re-login for group change to take effect.
+
+############################################################
+# 5. VERIFY DOCKER ACCESS
+############################################################
+
+- name: "DOCKER | Verify Docker daemon access"
+  command: docker info
+  register: docker_info
+  changed_when: false
+
+############################################################
+# 6. VERIFY DOCKER COMPOSE PLUGIN
+############################################################
+
+- name: "DOCKER | Check Docker Compose plugin"
+  command: docker compose version
+  register: compose_version
+  changed_when: false
+
+- name: "DOCKER | Docker Compose version"
+  debug:
+    msg: "{{ compose_version.stdout }}"
+
+############################################################
+# 7. CREATE APPLICATION DOCKER NETWORK
+############################################################
+
+- name: "DOCKER | Create application Docker network"
+  docker_network:
+    name: "{{ lookup('env','DOCKER_NETWORK_NAME') }}"
+    driver: "{{ lookup('env','DOCKER_NETWORK_DRIVER') | default('bridge') }}"
+    state: present
+
+############################################################
+# 8. FINAL STATUS
+############################################################
+
+- name: "DOCKER | Docker engine ready"
+  debug:
+    msg:
+      - "Docker binary: OK"
+      - "Docker daemon: OK"
+      - "Docker socket: OK"
+      - "Docker Compose: OK"
+      - "Network '{{ lookup('env','DOCKER_NETWORK_NAME') }}' ready"

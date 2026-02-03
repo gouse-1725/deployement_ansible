@@ -1,0 +1,129 @@
+version: "3.9"
+
+services:
+
+  app:
+    image: {{ lookup('env','APP_IMAGE') }}
+    container_name: {{ lookup('env','APP_CONTAINER_NAME') }}
+    ports:
+      - "{{ lookup('env','APP_PORT') }}:8080"
+    restart: {{ lookup('env','APP_RESTART_POLICY') }}
+    environment:
+      USERNAME: {{ lookup('env','APP_USERNAME') }}
+      PASSWORD: {{ lookup('env','APP_PASSWORD') }}
+      verma.orgId: "{{ lookup('env','ORG_ID') }}"
+      maximumSessions: "{{ lookup('env','MAXIMUM_SESSIONS') }}"
+      list.of.hostNames: "{{ lookup('env','LIST_OF_HOSTNAMES') }}"
+
+      SPRING_DATASOURCE_URL: "{{ lookup('env','SPRING_DATASOURCE_URL') }}"
+      SPRING_DATASOURCE_USERNAME: "{{ lookup('env','SPRING_DATASOURCE_USERNAME') }}"
+      SPRING_DATASOURCE_PASSWORD: "{{ lookup('env','SPRING_DATASOURCE_PASSWORD') }}"
+      SPRING_DATASOURCE_INITIALIZATION-MODE: "{{ lookup('env','SPRING_DATASOURCE_INIT_MODE') }}"
+
+      accessKey: "{{ lookup('env','AWS_ACCESS_KEY_ID') }}"
+      secretKey: "{{ lookup('env','AWS_SECRET_ACCESS_KEY') }}"
+      bucketName: "{{ lookup('env','MINIO_BUCKET') }}"
+      cloud_storage: "{{ lookup('env','DZI_STORAGE_TYPE') }}"
+
+      s3Region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
+      s3EndPoint: "{{ lookup('env','AWS_ENDPOINT') }}"
+      S3_END_POINT_FINE_UPLOADER: "{{ lookup('env','AWS_ENDPOINT') }}"
+      s3ServiceEndPoint: "{{ lookup('env','MINIO_SERVER_URL') }}"
+
+      LOGGING_FILE_NAME: "{{ lookup('env','APP_LOG_FILE') }}"
+      LOGGING_FILE_PATTERN: "{{ lookup('env','APP_LOG_PATTERN') }}"
+      minioStorageStatsApi: "{{ lookup('env','MINIO_STATS_API') }}"
+
+      apiKey: "{{ lookup('env','API_KEY') }}"
+      AWS_REGION: "{{ lookup('env','AWS_REGION') }}"
+      DEFAULT_LOGO: "{{ lookup('env','DEFAULT_LOGO') }}"
+
+    depends_on:
+      - db
+      - minio
+    volumes:
+      - "{{ lookup('env','APP_LOG_DIR') }}:/logs/onward"
+    networks:
+      - {{ lookup('env','DOCKER_NETWORK_NAME') }}
+
+  db:
+    image: {{ lookup('env','DB_IMAGE') }}
+    container_name: {{ lookup('env','DB_CONTAINER_NAME') }}
+    ports:
+      - "{{ lookup('env','DB_PORT') }}:5432"
+    restart: {{ lookup('env','DB_RESTART_POLICY') }}
+    environment:
+      POSTGRES_PASSWORD: {{ lookup('env','DB_PASSWORD') }}
+      POSTGRES_USER: {{ lookup('env','DB_USER') }}
+      POSTGRES_DB: {{ lookup('env','DB_NAME') }}
+    volumes:
+      - {{ lookup('env','DB_VOLUME_NAME') }}:/var/lib/postgresql/data
+    networks:
+      - {{ lookup('env','DOCKER_NETWORK_NAME') }}
+
+  dzi:
+    image: {{ lookup('env','DZI_IMAGE') }}
+    container_name: {{ lookup('env','DZI_CONTAINER_NAME') }}
+    depends_on:
+      - app
+    restart: unless-stopped
+    environment:
+      USERNAME: {{ lookup('env','DZI_USERNAME') }}
+      PASSWORD: {{ lookup('env','DZI_PASSWORD') }}
+      AWS_DEFAULT_REGION: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
+      AWS_ENDPOINT: "{{ lookup('env','AWS_ENDPOINT') }}"
+      MINIO_ENDPOINT_REPLACEMENT_IN_URL: "{{ lookup('env','MINIO_ENDPOINT_REPLACEMENT') }}"
+      AWS_ACCESS_KEY_ID: "{{ lookup('env','AWS_ACCESS_KEY_ID') }}"
+      AWS_SECRET_ACCESS_KEY: "{{ lookup('env','AWS_SECRET_ACCESS_KEY') }}"
+      AWS_BUCKET: "{{ lookup('env','AWS_BUCKET') }}"
+      MINIO_ALIAS: "{{ lookup('env','MINIO_ALIAS') }}"
+      BASE_URL: "{{ lookup('env','DZI_BASE_URL') }}"
+      STORAGE_TYPE: "{{ lookup('env','DZI_STORAGE_TYPE') }}"
+      QUEUE_TYPE: "{{ lookup('env','DZI_QUEUE_TYPE') }}"
+      INFINITE_LOOP: "{{ lookup('env','DZI_INFINITE_LOOP') }}"
+      CALCULATE_DZI_FILES: "{{ lookup('env','DZI_CALCULATE_FILES') }}"
+      LOG_FILE_NAME: "{{ lookup('env','DZI_LOG_FILE') }}"
+      MOUNT_PATH: /data
+    volumes:
+      - "{{ lookup('env','DZI_LOG_DIR') }}:/pathflowdx/logs/dzi-conversion"
+      - "{{ lookup('env','MINIO_DATA_DIR') }}:/data"
+    networks:
+      - {{ lookup('env','DOCKER_NETWORK_NAME') }}
+
+  minio:
+    image: {{ lookup('env','MINIO_IMAGE') }}
+    container_name: {{ lookup('env','MINIO_CONTAINER_NAME') }}
+    ports:
+      - "{{ lookup('env','MINIO_PORT') }}:9000"
+      - "{{ lookup('env','MINIO_CONSOLE_PORT') }}:9001"
+    restart: unless-stopped
+    volumes:
+      - "{{ lookup('env','MINIO_DATA_DIR') }}:/data"
+      - "{{ lookup('env','MINIO_CERTS_DIR') }}:/root/.minio/certs"
+      - "{{ lookup('env','MINIO_CONFIG_DIR') }}:/root/.minio"
+    command:
+      - server
+      - --console-address
+      - ":9001"
+      - --certs-dir
+      - /root/.minio/certs
+      - /data
+    environment:
+      MINIO_ROOT_USER: "{{ lookup('env','MINIO_ROOT_USER') }}"
+      MINIO_ROOT_PASSWORD: "{{ lookup('env','MINIO_ROOT_PASSWORD') }}"
+      MINIO_SERVER_URL: "{{ lookup('env','MINIO_SERVER_URL') }}"
+      MINIO_API_CORS: "{{ lookup('env','MINIO_API_CORS') }}"
+      MINIO_API_CORS_ALLOWED_ORIGINS: "{{ lookup('env','MINIO_API_CORS') }}"
+      MINIO_PROMETHEUS: "on"
+      MINIO_PROMETHEUS_PORT: "{{ lookup('env','MINIO_PROMETHEUS_PORT') }}"
+      MINIO_PROMETHEUS_URL: "{{ lookup('env','MINIO_PROMETHEUS_URL') }}"
+      MINIO_PROMETHEUS_JOB_ID: "{{ lookup('env','MINIO_PROMETHEUS_JOB_ID') }}"
+    networks:
+      - {{ lookup('env','DOCKER_NETWORK_NAME') }}
+
+volumes:
+  {{ lookup('env','DB_VOLUME_NAME') }}:
+
+networks:
+  {{ lookup('env','DOCKER_NETWORK_NAME') }}:
+    driver: {{ lookup('env','DOCKER_NETWORK_DRIVER') }}

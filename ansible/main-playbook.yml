@@ -1,0 +1,111 @@
+---
+############################################################
+# PathflowDX – Main Ansible Playbook
+#
+# Purpose:
+# - Central orchestration playbook
+# - Controls execution order
+# - Enables tag-based execution
+# - Imports role logic explicitly
+############################################################
+
+- name: "PathflowDX On-Prem Deployment"
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+
+  ##########################################################
+  # PRE-TASKS (SAFETY CHECKS)
+  ##########################################################
+  pre_tasks:
+
+    - name: "PRECHECK | Ensure config variables are available"
+      assert:
+        that:
+          - lookup('env','INSTALL_DIR') | length > 0
+          - lookup('env','APP_IMAGE') | length > 0
+          - lookup('env','DOMAIN') | length > 0
+        fail_msg: >
+          Required environment variables are missing.
+          Ensure bootstrap.sh exported config.env correctly.
+        success_msg: "Environment variables validated"
+
+  ##########################################################
+  # INFRA SETUP
+  ##########################################################
+  tasks:
+
+    - name: "INFRA | Base system & tools setup"
+      import_tasks: roles/infra_setup/main.yml
+      tags:
+        - infra
+
+    ##########################################################
+    # SSH ACCESS
+    ##########################################################
+    - name: "SSH | Configure SSH access"
+      import_tasks: roles/ssh_access/main.yml
+      tags:
+        - ssh
+
+    ##########################################################
+    # DOCKER ENGINE
+    ##########################################################
+    - name: "DOCKER | Validate Docker engine"
+      import_tasks: roles/docker_engine/main.yml
+      tags:
+        - docker
+
+    ##########################################################
+    # APPLICATION DEPLOYMENT
+    ##########################################################
+    - name: "APP | Deploy PathflowDX application"
+      import_tasks: roles/app_deployment/main.yml
+      tags:
+        - app
+
+    ##########################################################
+    # NGINX REVERSE PROXY
+    ##########################################################
+    - name: "NGINX | Configure reverse proxy"
+      import_tasks: roles/nginx_proxy/main.yml
+      tags:
+        - nginx
+
+    ##########################################################
+    # SSL CERTIFICATES (CONDITIONAL)
+    ##########################################################
+    - name: "SSL | Generate SSL certificates"
+      import_tasks: roles/ssl_certificates/main.yml
+      when: lookup('env','ENABLE_SSL') | lower == 'true'
+      tags:
+        - ssl
+
+    ##########################################################
+    # DATABASE BACKUPS
+    ##########################################################
+    - name: "BACKUP | Database backup configuration"
+      import_tasks: roles/database_backup/main.yml
+      tags:
+        - backup_db
+
+    ##########################################################
+    # LOG BACKUPS
+    ##########################################################
+    - name: "BACKUP | Log backup configuration"
+      import_tasks: roles/log_backup/main.yml
+      tags:
+        - backup_logs
+
+  ##########################################################
+  # POST-TASKS (FINAL STATUS)
+  ##########################################################
+  post_tasks:
+
+    - name: "STATUS | Deployment completed"
+      debug:
+        msg:
+          - "PathflowDX deployment completed successfully"
+          - "Environment: {{ lookup('env','ENV_NAME') }}"
+          - "Install Dir: {{ lookup('env','INSTALL_DIR') }}"

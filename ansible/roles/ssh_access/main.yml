@@ -1,0 +1,142 @@
+---
+############################################################
+# ROLE: ssh_access
+#
+# Purpose:
+# - Install OpenSSH server
+# - Ensure SSH service is running
+# - Create SSH user
+# - Install developer public keys
+# - Validate SSH daemon health
+#
+# Tags:
+# - ssh
+############################################################
+
+############################################################
+# 1. INSTALL OPENSSH SERVER
+############################################################
+
+- name: "SSH | Ensure OpenSSH server is installed"
+  apt:
+    name: openssh-server
+    state: present
+    update_cache: yes
+
+############################################################
+# 2. ENABLE & START SSH SERVICE
+############################################################
+
+- name: "SSH | Enable and start SSH service"
+  service:
+    name: ssh
+    state: started
+    enabled: true
+
+############################################################
+# 3. VERIFY SSH PORT
+############################################################
+
+- name: "SSH | Verify SSH port is listening"
+  wait_for:
+    port: "{{ lookup('env','SSH_PORT') | default('22') }}"
+    timeout: 10
+  register: ssh_port_check
+
+############################################################
+# 4. CREATE SSH USER
+############################################################
+
+- name: "SSH | Ensure SSH user exists"
+  user:
+    name: "{{ lookup('env','SSH_USER') }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+############################################################
+# 5. PREPARE .ssh DIRECTORY
+############################################################
+
+- name: "SSH | Create .ssh directory"
+  file:
+    path: "/home/{{ lookup('env','SSH_USER') }}/.ssh"
+    state: directory
+    owner: "{{ lookup('env','SSH_USER') }}"
+    group: "{{ lookup('env','SSH_USER') }}"
+    mode: "0700"
+
+############################################################
+# 6. VALIDATE KEYS DIRECTORY
+############################################################
+
+- name: "SSH | Check developer public keys directory exists"
+  stat:
+    path: "{{ lookup('env','SSH_KEYS_DIR') }}"
+  register: ssh_keys_dir
+
+- name: "SSH | Fail if SSH_KEYS_DIR does not exist"
+  fail:
+    msg: >
+      SSH public keys directory not found:
+      {{ lookup('env','SSH_KEYS_DIR') }}
+  when: not ssh_keys_dir.stat.exists
+
+############################################################
+# 7. LOAD ALL PUBLIC KEYS
+############################################################
+
+- name: "SSH | Read all developer public keys"
+  find:
+    paths: "{{ lookup('env','SSH_KEYS_DIR') }}"
+    patterns: "*.pub"
+  register: pub_keys
+
+- name: "SSH | Fail if no public keys found"
+  fail:
+    msg: "No public keys (*.pub) found in {{ lookup('env','SSH_KEYS_DIR') }}"
+  when: pub_keys.matched == 0
+
+############################################################
+# 8. INSTALL AUTHORIZED KEYS
+############################################################
+
+- name: "SSH | Add developer public keys to authorized_keys"
+  authorized_key:
+    user: "{{ lookup('env','SSH_USER') }}"
+    key: "{{ lookup('file', item.path) }}"
+    state: present
+  loop: "{{ pub_keys.files }}"
+
+############################################################
+# 9. FIX PERMISSIONS (CRITICAL)
+############################################################
+
+- name: "SSH | Set permissions on authorized_keys"
+  file:
+    path: "/home/{{ lookup('env','SSH_USER') }}/.ssh/authorized_keys"
+    owner: "{{ lookup('env','SSH_USER') }}"
+    group: "{{ lookup('env','SSH_USER') }}"
+    mode: "0600"
+
+############################################################
+# 10. VALIDATE SSH DAEMON CONFIG
+############################################################
+
+- name: "SSH | Validate sshd configuration"
+  command: sshd -t
+  register: sshd_test
+  changed_when: false
+
+############################################################
+# 11. FINAL STATUS
+############################################################
+
+- name: "SSH | SSH access configuration completed"
+  debug:
+    msg:
+      - "OpenSSH server: OK"
+      - "SSH service running: OK"
+      - "SSH port listening: OK"
+      - "User '{{ lookup('env','SSH_USER') }}' configured"
+      - "Developer keys installed: {{ pub_keys.matched }}"

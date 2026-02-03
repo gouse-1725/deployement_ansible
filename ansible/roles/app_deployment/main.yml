@@ -1,0 +1,132 @@
+---
+############################################################
+# ROLE: app_deployment
+#
+# Purpose:
+# - Authenticate to Docker registry (optional)
+# - Render docker-compose.yml from template
+# - Pull images (config-driven)
+# - Build images (config-driven)
+# - Start application containers
+# - Validate application readiness
+#
+# Tags:
+# - app
+############################################################
+
+############################################################
+# 1. VALIDATE REQUIRED ENVIRONMENT VARIABLES
+############################################################
+
+- name: "APP | Validate required environment variables"
+  assert:
+    that:
+      - lookup('env','INSTALL_DIR') | length > 0
+      - lookup('env','APP_IMAGE') | length > 0
+      - lookup('env','APP_PORT') | length > 0
+    fail_msg: >
+      Required environment variables are missing.
+      Ensure config.env is correct and bootstrap.sh exported variables.
+    success_msg: "Application environment variables validated"
+
+############################################################
+# 2. CREATE INSTALL DIRECTORY
+############################################################
+
+- name: "APP | Ensure application install directory exists"
+  file:
+    path: "{{ lookup('env','INSTALL_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+############################################################
+# 3. DOCKER REGISTRY LOGIN (OPTIONAL)
+############################################################
+# Handles private Docker images non-interactively
+
+- name: "APP | Login to Docker registry (if credentials provided)"
+  docker_login:
+    registry_url: "{{ lookup('env','DOCKER_REGISTRY') | default('docker.io') }}"
+    username: "{{ lookup('env','DOCKER_USERNAME') }}"
+    password: "{{ lookup('env','DOCKER_PASSWORD') }}"
+  when:
+    - lookup('env','DOCKER_USERNAME') | default('') | length > 0
+    - lookup('env','DOCKER_PASSWORD') | default('') | length > 0
+
+############################################################
+# 4. RENDER DOCKER COMPOSE FILE
+############################################################
+
+- name: "APP | Render docker-compose.yml from template"
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ lookup('env','INSTALL_DIR') }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+############################################################
+# 5. PULL DOCKER IMAGES (CONFIG CONTROLLED)
+############################################################
+
+- name: "APP | Pull Docker images (if enabled)"
+  command: docker compose pull
+  args:
+    chdir: "{{ lookup('env','INSTALL_DIR') }}"
+  when: lookup('env','DOCKER_COMPOSE_PULL') | default('true') | lower == 'true'
+  register: docker_pull
+  failed_when: docker_pull.rc != 0
+
+############################################################
+# 6. BUILD & START CONTAINERS (CONFIG CONTROLLED)
+############################################################
+
+- name: "APP | Build and start containers"
+  command: >
+    docker compose up
+    {{ '--build' if lookup('env','DOCKER_FORCE_REBUILD') | default('false') | lower == 'true' else '' }}
+    -d
+  args:
+    chdir: "{{ lookup('env','INSTALL_DIR') }}"
+  register: docker_up
+  failed_when: docker_up.rc != 0
+
+############################################################
+# 7. WAIT FOR APPLICATION PORT
+############################################################
+
+- name: "APP | Wait for application to be reachable"
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ lookup('env','APP_PORT') }}"
+    timeout: 60
+
+############################################################
+# 8. VERIFY RUNNING CONTAINERS
+############################################################
+
+- name: "APP | List running containers"
+  command: docker compose ps
+  args:
+    chdir: "{{ lookup('env','INSTALL_DIR') }}"
+  register: docker_ps
+  changed_when: false
+
+- name: "APP | Show container status"
+  debug:
+    msg: "{{ docker_ps.stdout_lines }}"
+
+############################################################
+# 9. FINAL STATUS
+############################################################
+
+- name: "APP | Application deployment completed successfully"
+  debug:
+    msg:
+      - "Docker registry login: OK (if required)"
+      - "Docker Compose file rendered"
+      - "Images pulled: {{ lookup('env','DOCKER_COMPOSE_PULL') }}"
+      - "Force rebuild: {{ lookup('env','DOCKER_FORCE_REBUILD') }}"
+      - "Application running on port {{ lookup('env','APP_PORT') }}"
