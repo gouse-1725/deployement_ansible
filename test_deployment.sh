@@ -95,7 +95,7 @@ else
         "INSTALL_DIR"
         "APP_IMAGE"
         "APP_PORT"
-        "DOMAIN"
+        "NGINX_SERVER_NAME"
         "DB_NAME"
         "DB_USER"
         "DB_PASSWORD"

@@ -34,7 +34,7 @@
         that:
           - lookup('env','INSTALL_DIR') | length > 0
           - lookup('env','APP_IMAGE') | length > 0
-          - lookup('env','DOMAIN') | length > 0
+          - lookup('env','NGINX_SERVER_NAME') | length > 0
         fail_msg: >
           Required environment variables are missing.
           Ensure bootstrap.sh exported config.env correctly.

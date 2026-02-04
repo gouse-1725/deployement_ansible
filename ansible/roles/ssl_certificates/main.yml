@@ -19,11 +19,11 @@
 - name: "SSL | Validate required environment variables"
   assert:
     that:
-      - lookup('env','DOMAIN') | length > 0
+      - lookup('env','NGINX_SERVER_NAME') | length > 0
       - lookup('env','CERTBOT_EMAIL') | length > 0
     fail_msg: >
       SSL configuration missing.
-      DOMAIN and CERTBOT_EMAIL must be set in config.env
+      NGINX_SERVER_NAME and CERTBOT_EMAIL must be set in config.env
     success_msg: "SSL variables validated"
 
 ############################################################
@@ -44,7 +44,7 @@
 
 - name: "SSL | Check if certificate already exists"
   stat:
-    path: "/etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/fullchain.pem"
+    path: "/etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/fullchain.pem"
   register: cert_exists
 
 ############################################################
@@ -57,7 +57,7 @@
     --non-interactive
     --agree-tos
     --email {{ lookup('env','CERTBOT_EMAIL') }}
-    -d {{ lookup('env','DOMAIN') }}
+    -d {{ lookup('env','NGINX_SERVER_NAME') }}
     --redirect
   when: not cert_exists.stat.exists
   register: certbot_result
@@ -69,12 +69,12 @@
 
 - name: "SSL | Validate certificate files exist"
   stat:
-    path: "/etc/letsencrypt/live/{{ lookup('env','DOMAIN') }}/privkey.pem"
+    path: "/etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/privkey.pem"
   register: cert_key
 
 - name: "SSL | Fail if certificate generation failed"
   fail:
-    msg: "SSL certificate generation failed for {{ lookup('env','DOMAIN') }}"
+    msg: "SSL certificate generation failed for {{ lookup('env','NGINX_SERVER_NAME') }}"
   when: not cert_key.stat.exists
 
 ############################################################
@@ -114,6 +114,6 @@
 - name: "SSL | SSL certificate configured successfully"
   debug:
     msg:
-      - "SSL certificate ready for {{ lookup('env','DOMAIN') }}"
+      - "SSL certificate ready for {{ lookup('env','NGINX_SERVER_NAME') }}"
       - "Auto-renewal enabled"
       - "Nginx reloaded with HTTPS"

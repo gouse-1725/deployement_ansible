@@ -18,11 +18,11 @@
 - name: "NGINX | Validate required environment variables"
   assert:
     that:
-      - lookup('env','DOMAIN') | length > 0
+      - lookup('env','NGINX_SERVER_NAME') | length > 0
       - lookup('env','APP_PORT') | length > 0
     fail_msg: >
       Missing required NGINX variables.
-      Ensure DOMAIN and APP_PORT are set in config.env
+      Ensure NGINX_SERVER_NAME and APP_PORT are set in config.env
     success_msg: "NGINX variables validated"
 
 ############################################################
@@ -104,5 +104,5 @@
   debug:
     msg:
       - "Nginx installed and running"
-      - "Site enabled for domain {{ lookup('env','DOMAIN') }}"
+      - "Site enabled for domain {{ lookup('env','NGINX_SERVER_NAME') }}"
       - "Proxying traffic to application port {{ lookup('env','APP_PORT') }}"
