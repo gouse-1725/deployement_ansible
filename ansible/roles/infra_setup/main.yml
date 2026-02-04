@@ -328,6 +328,7 @@
     - "{{ lookup('env','LOG_BASE_DIR') }}"
     - "{{ lookup('env','APP_LOG_DIR') }}"
     - "{{ lookup('env','DZI_LOG_DIR') }}"
+    - "{{ lookup('env','MINIO_LOG_DIR') }}"
 
 - name: "INFRA | Create MinIO data and config directories"
   file:

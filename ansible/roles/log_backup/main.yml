@@ -21,20 +21,47 @@
     that:
       - lookup('env','LOG_BACKUP_DIR') | length > 0
       - lookup('env','LOG_BACKUP_RETENTION_DAYS') | length > 0
+      - lookup('env','LOG_BACKUP_TIME') | length > 0
       - lookup('env','APP_LOG_DIR') | length > 0
       - lookup('env','DZI_LOG_DIR') | length > 0
+      - lookup('env','MINIO_LOG_DIR') | length > 0
+      - lookup('env','DELETE_LOG_BACKUPS_AFTER_RETENTION') | length > 0
     fail_msg: >
       Log backup configuration missing.
       Ensure LOG_* variables are set in config.env
     success_msg: "Log backup variables validated"
 
 ############################################################
-# 2. CREATE LOG BACKUP DIRECTORY
+# 2. CREATE LOG BACKUP DIRECTORY STRUCTURE
 ############################################################
 
-- name: "LOG BACKUP | Create log backup directory"
+- name: "LOG BACKUP | Create main log backup directory"
   file:
     path: "{{ lookup('env','LOG_BACKUP_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "LOG BACKUP | Create application log backup subdirectory"
+  file:
+    path: "{{ lookup('env','LOG_BACKUP_DIR') }}/application"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "LOG BACKUP | Create DZI log backup subdirectory"
+  file:
+    path: "{{ lookup('env','LOG_BACKUP_DIR') }}/dzi"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: "LOG BACKUP | Create MinIO log backup subdirectory"
+  file:
+    path: "{{ lookup('env','LOG_BACKUP_DIR') }}/minio"
     state: directory
     owner: root
     group: root
@@ -54,12 +81,18 @@
     path: "{{ lookup('env','DZI_LOG_DIR') }}"
   register: dzi_log_dir
 
+- name: "LOG BACKUP | Check MinIO log directory"
+  stat:
+    path: "{{ lookup('env','MINIO_LOG_DIR') }}"
+  register: minio_log_dir
+
 - name: "LOG BACKUP | Fail if no log directories exist"
   fail:
-    msg: "Neither application nor DZI log directories exist. Nothing to back up."
+    msg: "No log directories exist (application, DZI, or MinIO). Nothing to back up."
   when:
     - not app_log_dir.stat.exists
     - not dzi_log_dir.stat.exists
+    - not minio_log_dir.stat.exists
 
 ############################################################
 # 4. CREATE LOG BACKUP SCRIPT
@@ -78,34 +111,58 @@
       TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
       BACKUP_DIR="{{ lookup('env','LOG_BACKUP_DIR') }}"
       RETENTION_DAYS={{ lookup('env','LOG_BACKUP_RETENTION_DAYS') }}
+      DELETE_AFTER_RETENTION="{{ lookup('env','DELETE_LOG_BACKUPS_AFTER_RETENTION') }}"
 
       APP_LOG_DIR="{{ lookup('env','APP_LOG_DIR') }}"
       DZI_LOG_DIR="{{ lookup('env','DZI_LOG_DIR') }}"
+      MINIO_LOG_DIR="{{ lookup('env','MINIO_LOG_DIR') }}"
 
-      ARCHIVE="$BACKUP_DIR/logs_${TIMESTAMP}.tar.gz"
+      echo "[INFO] Starting log backup at $(date)"
 
-      echo "[INFO] Starting log backup: $ARCHIVE"
-
-      # Collect existing directories
-      SOURCES=""
-      [[ -d "$APP_LOG_DIR" ]] && SOURCES="$SOURCES $APP_LOG_DIR"
-      [[ -d "$DZI_LOG_DIR" ]] && SOURCES="$SOURCES $DZI_LOG_DIR"
-
-      # Check if we have any sources
-      if [ -z "$SOURCES" ]; then
-        echo "[WARN] No log directories found. Skipping backup."
-        exit 0
+      # Backup Application Logs
+      if [[ -d "$APP_LOG_DIR" ]]; then
+        APP_ARCHIVE="$BACKUP_DIR/application/app_logs_${TIMESTAMP}.tar.gz"
+        echo "[INFO] Backing up application logs: $APP_ARCHIVE"
+        tar -czf "$APP_ARCHIVE" -C "$(dirname "$APP_LOG_DIR")" "$(basename "$APP_LOG_DIR")" 2>/dev/null || true
+        echo "[INFO] Application logs backed up successfully"
+      else
+        echo "[WARN] Application log directory not found: $APP_LOG_DIR"
       fi
 
-      # Create archive (no quotes around $SOURCES to allow word splitting)
-      tar -czf "$ARCHIVE" $SOURCES
+      # Backup DZI Logs
+      if [[ -d "$DZI_LOG_DIR" ]]; then
+        DZI_ARCHIVE="$BACKUP_DIR/dzi/dzi_logs_${TIMESTAMP}.tar.gz"
+        echo "[INFO] Backing up DZI logs: $DZI_ARCHIVE"
+        tar -czf "$DZI_ARCHIVE" -C "$(dirname "$DZI_LOG_DIR")" "$(basename "$DZI_LOG_DIR")" 2>/dev/null || true
+        echo "[INFO] DZI logs backed up successfully"
+      else
+        echo "[WARN] DZI log directory not found: $DZI_LOG_DIR"
+      fi
 
-      echo "[INFO] Log backup completed"
+      # Backup MinIO Logs
+      if [[ -d "$MINIO_LOG_DIR" ]]; then
+        MINIO_ARCHIVE="$BACKUP_DIR/minio/minio_logs_${TIMESTAMP}.tar.gz"
+        echo "[INFO] Backing up MinIO logs: $MINIO_ARCHIVE"
+        tar -czf "$MINIO_ARCHIVE" -C "$(dirname "$MINIO_LOG_DIR")" "$(basename "$MINIO_LOG_DIR")" 2>/dev/null || true
+        echo "[INFO] MinIO logs backed up successfully"
+      else
+        echo "[WARN] MinIO log directory not found: $MINIO_LOG_DIR"
+      fi
 
-      echo "[INFO] Removing backups older than $RETENTION_DAYS days"
-      find "$BACKUP_DIR" -type f -name "logs_*.tar.gz" -mtime +$RETENTION_DAYS -delete
+      echo "[INFO] All log backups completed"
 
-      echo "[INFO] Log retention cleanup done"
+      # Retention cleanup (only if DELETE_AFTER_RETENTION is true)
+      if [[ "${DELETE_AFTER_RETENTION,,}" == "true" ]]; then
+        echo "[INFO] Removing log backups older than $RETENTION_DAYS days"
+        find "$BACKUP_DIR/application" -type f -name "app_logs_*.tar.gz" -mtime +$RETENTION_DAYS -delete 2>/dev/null || true
+        find "$BACKUP_DIR/dzi" -type f -name "dzi_logs_*.tar.gz" -mtime +$RETENTION_DAYS -delete 2>/dev/null || true
+        find "$BACKUP_DIR/minio" -type f -name "minio_logs_*.tar.gz" -mtime +$RETENTION_DAYS -delete 2>/dev/null || true
+        echo "[INFO] Old log backups cleaned up"
+      else
+        echo "[INFO] Retention cleanup disabled (DELETE_LOG_BACKUPS_AFTER_RETENTION=false)"
+      fi
+
+      echo "[INFO] Log backup process completed at $(date)"
 
 ############################################################
 # 5. TEST LOG BACKUP SCRIPT (ONE-TIME)
@@ -123,8 +180,8 @@
 - name: "LOG BACKUP | Configure daily log backup cron job"
   cron:
     name: "PathflowDX Log Backup"
-    minute: "30"
-    hour: "02"
+    minute: "{{ lookup('env','LOG_BACKUP_TIME').split(':')[1] }}"
+    hour: "{{ lookup('env','LOG_BACKUP_TIME').split(':')[0] }}"
     job: "/usr/local/bin/pathflowdx_log_backup.sh >> /var/log/pathflowdx_log_backup.log 2>&1"
     user: root
     state: present
@@ -136,8 +193,13 @@
 - name: "LOG BACKUP | Log backup configuration completed"
   debug:
     msg:
-      - "Backup directory created: {{ lookup('env','LOG_BACKUP_DIR') }}"
+      - "Backup directories created:"
+      - "  - Application: {{ lookup('env','LOG_BACKUP_DIR') }}/application"
+      - "  - DZI: {{ lookup('env','LOG_BACKUP_DIR') }}/dzi"
+      - "  - MinIO: {{ lookup('env','LOG_BACKUP_DIR') }}/minio"
       - "Backup script installed: /usr/local/bin/pathflowdx_log_backup.sh"
-      - "Backup schedule: Daily at 02:30 AM"
+      - "Backup schedule: Daily at {{ lookup('env','LOG_BACKUP_TIME') }}"
       - "Retention: {{ lookup('env','LOG_BACKUP_RETENTION_DAYS') }} days"
+      - "Auto-delete after retention: {{ lookup('env','DELETE_LOG_BACKUPS_AFTER_RETENTION') }}"
+      - "Initial backup test: Completed"
       - "Initial backup test: Completed"

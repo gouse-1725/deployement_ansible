@@ -25,6 +25,7 @@
       - lookup('env','DB_PASSWORD') | length > 0
       - lookup('env','DB_BACKUP_DIR') | length > 0
       - lookup('env','DB_BACKUP_RETENTION_DAYS') | length > 0
+      - lookup('env','DELETE_DB_BACKUPS_AFTER_RETENTION') | length > 0
     fail_msg: >
       Database backup configuration missing.
       Ensure DB_* variables are set in config.env
@@ -69,6 +70,7 @@
       TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
       BACKUP_DIR="{{ lookup('env','DB_BACKUP_DIR') }}"
       RETENTION_DAYS={{ lookup('env','DB_BACKUP_RETENTION_DAYS') }}
+      DELETE_AFTER_RETENTION="{{ lookup('env','DELETE_DB_BACKUPS_AFTER_RETENTION') }}"
 
       DB_CONTAINER="{{ lookup('env','DB_CONTAINER_NAME') }}"
       DB_NAME="{{ lookup('env','DB_NAME') }}"
@@ -86,10 +88,14 @@
 
       echo "[INFO] Backup completed"
 
-      echo "[INFO] Cleaning backups older than $RETENTION_DAYS days"
-      find "$BACKUP_DIR" -type f -name "*.sql.gz" -mtime +$RETENTION_DAYS -delete
-
-      echo "[INFO] Backup retention cleanup done"
+      # Retention cleanup (only if DELETE_AFTER_RETENTION is true)
+      if [[ "${DELETE_AFTER_RETENTION,,}" == "true" ]]; then
+        echo "[INFO] Cleaning backups older than $RETENTION_DAYS days"
+        find "$BACKUP_DIR" -type f -name "*.sql.gz" -mtime +$RETENTION_DAYS -delete
+        echo "[INFO] Backup retention cleanup done"
+      else
+        echo "[INFO] Retention cleanup disabled (DELETE_DB_BACKUPS_AFTER_RETENTION=false)"
+      fi
   no_log: true   # hides DB password
 
 ############################################################
@@ -125,4 +131,5 @@
       - "Backup script installed: /usr/local/bin/pathflowdx_db_backup.sh"
       - "Backup schedule: Daily at {{ lookup('env','DB_BACKUP_TIME') }}"
       - "Retention: {{ lookup('env','DB_BACKUP_RETENTION_DAYS') }} days"
+      - "Auto-delete after retention: {{ lookup('env','DELETE_DB_BACKUPS_AFTER_RETENTION') }}"
       - "Initial backup test: Completed"
