@@ -91,12 +91,12 @@
       [[ -d "$APP_LOG_DIR" ]] && SOURCES+=("$APP_LOG_DIR")
       [[ -d "$DZI_LOG_DIR" ]] && SOURCES+=("$DZI_LOG_DIR")
 
-      if [ "${#SOURCES[@]}" -eq 0 ]; then
+      if [ "${{ '${#SOURCES[@]}' }}" -eq 0 ]; then
         echo "[WARN] No log directories found. Skipping backup."
         exit 0
       fi
 
-      tar -czf "$ARCHIVE" "${SOURCES[@]}"
+      tar -czf "$ARCHIVE" "${{ '${SOURCES[@]}' }}"
 
       echo "[INFO] Log backup completed"
 
