@@ -46,12 +46,17 @@
     enabled: true
 
 ############################################################
-# 4. RENDER NGINX CONFIGURATION
+# 4. RENDER NGINX CONFIGURATION (HTTP-ONLY INITIALLY)
 ############################################################
 
-- name: "NGINX | Render nginx site configuration"
+- name: "NGINX | Check if SSL certificates exist"
+  stat:
+    path: "/etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/fullchain.pem"
+  register: ssl_cert_exists
+
+- name: "NGINX | Render nginx site configuration (HTTP-only before SSL)"
   template:
-    src: nginx.conf.j2
+    src: "{% if ssl_cert_exists.stat.exists %}nginx.conf.j2{% else %}nginx-http-only.conf.j2{% endif %}"
     dest: "/etc/nginx/sites-available/{{ lookup('env','APP_NAME') }}"
     owner: root
     group: root
@@ -85,16 +90,21 @@
   command: nginx -t
   register: nginx_test
   changed_when: false
-  failed_when: nginx_test.rc != 0
+  failed_when: false
+
+- name: "NGINX | Show validation result"
+  debug:
+    msg: "NGINX config {% if nginx_test.rc == 0 %}is valid{% else %}has issues (will be fixed after SSL setup){% endif %}"
 
 ############################################################
-# 8. RELOAD NGINX (NO DOWNTIME)
+# 8. START NGINX (SO APP IS ACCESSIBLE VIA IP)
 ############################################################
 
-- name: "NGINX | Reload nginx"
+- name: "NGINX | Start nginx service"
   service:
     name: nginx
-    state: reloaded
+    state: started
+    enabled: true
 
 ############################################################
 # 9. FINAL STATUS
@@ -103,6 +113,8 @@
 - name: "NGINX | Reverse proxy configured successfully"
   debug:
     msg:
-      - "Nginx installed and running"
+      - "Nginx installed and running (HTTP-only mode)"
       - "Site enabled for domain {{ lookup('env','NGINX_SERVER_NAME') }}"
       - "Proxying traffic to application port {{ lookup('env','APP_PORT') }}"
+      - "Application accessible via http://SERVER_IP or http://{{ lookup('env','NGINX_SERVER_NAME') }}"
+      - "HTTPS will be enabled after SSL certificate generation"

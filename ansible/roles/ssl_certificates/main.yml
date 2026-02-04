@@ -99,13 +99,28 @@
   failed_when: renew_test.rc != 0
 
 ############################################################
-# 8. RELOAD NGINX
+# 8. UPDATE NGINX CONFIG TO HTTPS AND RESTART
 ############################################################
 
-- name: "SSL | Reload nginx after SSL configuration"
+- name: "SSL | Update nginx configuration to HTTPS (with SSL)"
+  template:
+    src: nginx.conf.j2
+    dest: "/etc/nginx/sites-available/{{ lookup('env','APP_NAME') }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "SSL | Validate nginx configuration with SSL"
+  command: nginx -t
+  register: nginx_ssl_test
+  changed_when: false
+  failed_when: nginx_ssl_test.rc != 0
+
+- name: "SSL | Restart nginx to apply SSL configuration"
   service:
     name: nginx
-    state: reloaded
+    state: restarted
+    enabled: true
 
 ############################################################
 # 9. FINAL STATUS

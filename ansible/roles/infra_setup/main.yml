@@ -220,10 +220,9 @@
     state: present
   register: nginx_install
 
-- name: "INFRA | Enable & start Nginx"
+- name: "INFRA | Ensure Nginx is enabled"
   service:
     name: nginx
-    state: started
     enabled: true
 
 - name: "INFRA | Nginx status"
