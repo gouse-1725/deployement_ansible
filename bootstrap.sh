@@ -136,9 +136,7 @@ echo "🚀 Starting Ansible deployment..."
 
 cd "$ANSIBLE_DIR"
 
-# Export all environment variables for Ansible to access
-export $(grep -v '^#' "$CONFIG_FILE" | grep -v '^$' | xargs)
-
+# Variables already exported at the top via 'set -a; source config.env; set +a'
 # Non-interactive, predictable execution with optional tags
 if [[ $# -gt 0 ]]; then
   echo "Running with arguments: $@"
