@@ -86,17 +86,19 @@
 
       echo "[INFO] Starting log backup: $ARCHIVE"
 
-      SOURCES=()
+      # Collect existing directories
+      SOURCES=""
+      [[ -d "$APP_LOG_DIR" ]] && SOURCES="$SOURCES $APP_LOG_DIR"
+      [[ -d "$DZI_LOG_DIR" ]] && SOURCES="$SOURCES $DZI_LOG_DIR"
 
-      [[ -d "$APP_LOG_DIR" ]] && SOURCES+=("$APP_LOG_DIR")
-      [[ -d "$DZI_LOG_DIR" ]] && SOURCES+=("$DZI_LOG_DIR")
-
-      if [ "${{ '${#SOURCES[@]}' }}" -eq 0 ]; then
+      # Check if we have any sources
+      if [ -z "$SOURCES" ]; then
         echo "[WARN] No log directories found. Skipping backup."
         exit 0
       fi
 
-      tar -czf "$ARCHIVE" "${{ '${SOURCES[@]}' }}"
+      # Create archive (no quotes around $SOURCES to allow word splitting)
+      tar -czf "$ARCHIVE" $SOURCES
 
       echo "[INFO] Log backup completed"
 
