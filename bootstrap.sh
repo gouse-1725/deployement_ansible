@@ -136,8 +136,16 @@ echo "🚀 Starting Ansible deployment..."
 
 cd "$ANSIBLE_DIR"
 
-# Non-interactive, predictable execution
-ansible-playbook main-playbook.yml
+# Export all environment variables for Ansible to access
+export $(grep -v '^#' "$CONFIG_FILE" | grep -v '^$' | xargs)
+
+# Non-interactive, predictable execution with optional tags
+if [[ $# -gt 0 ]]; then
+  echo "Running with arguments: $@"
+  ansible-playbook main-playbook.yml "$@"
+else
+  ansible-playbook main-playbook.yml
+fi
 
 echo "=========================================="
 echo " ✅ PathflowDX Deployment Completed"
