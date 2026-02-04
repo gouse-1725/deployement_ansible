@@ -36,34 +36,31 @@
     update_cache: yes
 
 ############################################################
-# 3. ENSURE NGINX SERVICE RUNNING
+# 3. RENDER NGINX CONFIGURATION (HTTP-ONLY INITIALLY)
 ############################################################
 
-- name: "NGINX | Enable and start Nginx"
+- name: "NGINX | Stop nginx if running (to deploy config safely)"
   service:
     name: nginx
-    state: started
-    enabled: true
-
-############################################################
-# 4. RENDER NGINX CONFIGURATION (HTTP-ONLY INITIALLY)
-############################################################
+    state: stopped
+  ignore_errors: true
 
 - name: "NGINX | Check if SSL certificates exist"
   stat:
     path: "/etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/fullchain.pem"
   register: ssl_cert_exists
+  when: lookup('env','NGINX_SERVER_NAME') | length > 0
 
 - name: "NGINX | Render nginx site configuration (HTTP-only before SSL)"
   template:
-    src: "{% if ssl_cert_exists.stat.exists %}nginx.conf.j2{% else %}nginx-http-only.conf.j2{% endif %}"
+    src: "{% if ssl_cert_exists.stat.exists | default(false) %}nginx.conf.j2{% else %}nginx-http-only.conf.j2{% endif %}"
     dest: "/etc/nginx/sites-available/{{ lookup('env','APP_NAME') }}"
     owner: root
     group: root
     mode: "0644"
 
 ############################################################
-# 5. ENABLE SITE (SYMLINK)
+# 4. ENABLE SITE (SYMLINK)
 ############################################################
 
 - name: "NGINX | Enable nginx site"
@@ -74,7 +71,7 @@
     force: true
 
 ############################################################
-# 6. DISABLE DEFAULT SITE (OPTIONAL BUT CLEAN)
+# 5. DISABLE DEFAULT SITE (OPTIONAL BUT CLEAN)
 ############################################################
 
 - name: "NGINX | Disable default nginx site"
@@ -83,21 +80,17 @@
     state: absent
 
 ############################################################
-# 7. VALIDATE NGINX CONFIG
+# 6. VALIDATE NGINX CONFIG
 ############################################################
 
 - name: "NGINX | Validate nginx configuration"
   command: nginx -t
   register: nginx_test
   changed_when: false
-  failed_when: false
-
-- name: "NGINX | Show validation result"
-  debug:
-    msg: "NGINX config {% if nginx_test.rc == 0 %}is valid{% else %}has issues (will be fixed after SSL setup){% endif %}"
+  failed_when: nginx_test.rc != 0
 
 ############################################################
-# 8. START NGINX (SO APP IS ACCESSIBLE VIA IP)
+# 7. START NGINX (SO APP IS ACCESSIBLE VIA IP)
 ############################################################
 
 - name: "NGINX | Start nginx service"
@@ -107,14 +100,14 @@
     enabled: true
 
 ############################################################
-# 9. FINAL STATUS
+# 8. FINAL STATUS
 ############################################################
 
 - name: "NGINX | Reverse proxy configured successfully"
   debug:
     msg:
       - "Nginx installed and running (HTTP-only mode)"
-      - "Site enabled for domain {{ lookup('env','NGINX_SERVER_NAME') }}"
+      - "Site enabled for domain {{ lookup('env','NGINX_SERVER_NAME') | default('(using IP)') }}"
       - "Proxying traffic to application port {{ lookup('env','APP_PORT') }}"
-      - "Application accessible via http://SERVER_IP or http://{{ lookup('env','NGINX_SERVER_NAME') }}"
+      - "Application accessible via http://SERVER_IP"
       - "HTTPS will be enabled after SSL certificate generation"
