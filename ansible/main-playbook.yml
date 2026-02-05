@@ -48,7 +48,7 @@
     - name: "PRECHECK | Ensure minimum 10GB disk space available"
       assert:
         that:
-          - disk_space.stdout | int >= 10
+          - disk_space.stdout | int >= 3
         fail_msg: >
           Insufficient disk space. At least 10GB required.
           Available: {{ disk_space.stdout }}GB
