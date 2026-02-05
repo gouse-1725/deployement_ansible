@@ -167,7 +167,7 @@
     regexp: '^#?PubkeyAuthentication'
     line: 'PubkeyAuthentication yes'
     state: present
-  notify: restart ssh
+  register: ssh_pubkey_config
 
 - name: "SSH | Ensure PasswordAuthentication is disabled"
   lineinfile:
@@ -175,7 +175,7 @@
     regexp: '^#?PasswordAuthentication'
     line: 'PasswordAuthentication no'
     state: present
-  notify: restart ssh
+  register: ssh_password_config
 
 - name: "SSH | Ensure AuthorizedKeysFile is set correctly"
   lineinfile:
@@ -183,18 +183,20 @@
     regexp: '^#?AuthorizedKeysFile'
     line: 'AuthorizedKeysFile .ssh/authorized_keys'
     state: present
-  notify: restart ssh
+  register: ssh_authkeys_config
 
 - name: "SSH | Validate sshd configuration"
   command: sshd -t
   register: sshd_test
   changed_when: false
 
-- name: "SSH | Restart SSH service to apply changes"
+- name: "SSH | Restart SSH service to apply configuration changes"
   service:
     name: ssh
     state: restarted
-  when: ssh_user_defined | bool
+  when: 
+    - ssh_user_defined | bool
+    - (ssh_pubkey_config.changed or ssh_password_config.changed or ssh_authkeys_config.changed)
 
 ############################################################
 # 11. FINAL STATUS
