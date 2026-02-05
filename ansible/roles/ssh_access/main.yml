@@ -118,13 +118,14 @@
 - name: "SSH | Read all developer public keys"
   find:
     paths: "{{ lookup('env','SSH_KEYS_DIR') }}"
-    patterns: "*.pub"
+    patterns: "*"
+    file_type: file
   register: pub_keys
   when: ssh_user_defined | bool
 
 - name: "SSH | Warning if no public keys found"
   debug:
-    msg: "WARNING: No public keys (*.pub) found in {{ lookup('env','SSH_KEYS_DIR') }}"
+    msg: "WARNING: No public key files found in {{ lookup('env','SSH_KEYS_DIR') }}"
   when:
     - ssh_user_defined | bool
     - pub_keys.matched == 0
