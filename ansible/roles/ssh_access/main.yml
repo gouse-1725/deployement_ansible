@@ -63,6 +63,15 @@
 # 5. PREPARE .ssh DIRECTORY
 ############################################################
 
+- name: "SSH | Fix home directory permissions"
+  file:
+    path: "/home/{{ lookup('env','SSH_USER') }}"
+    owner: "{{ lookup('env','SSH_USER') }}"
+    group: "{{ lookup('env','SSH_USER') }}"
+    mode: "0755"
+    state: directory
+  when: ssh_user_defined | bool
+
 - name: "SSH | Create .ssh directory"
   file:
     path: "/home/{{ lookup('env','SSH_USER') }}/.ssh"
@@ -149,13 +158,43 @@
     - pub_keys.matched > 0
 
 ############################################################
-# 10. VALIDATE SSH DAEMON CONFIG
+# 10. CONFIGURE SSH DAEMON FOR KEY-BASED AUTH
 ############################################################
+
+- name: "SSH | Ensure PubkeyAuthentication is enabled"
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PubkeyAuthentication'
+    line: 'PubkeyAuthentication yes'
+    state: present
+  notify: restart ssh
+
+- name: "SSH | Ensure PasswordAuthentication is disabled"
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+    state: present
+  notify: restart ssh
+
+- name: "SSH | Ensure AuthorizedKeysFile is set correctly"
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?AuthorizedKeysFile'
+    line: 'AuthorizedKeysFile .ssh/authorized_keys'
+    state: present
+  notify: restart ssh
 
 - name: "SSH | Validate sshd configuration"
   command: sshd -t
   register: sshd_test
   changed_when: false
+
+- name: "SSH | Restart SSH service to apply changes"
+  service:
+    name: ssh
+    state: restarted
+  when: ssh_user_defined | bool
 
 ############################################################
 # 11. FINAL STATUS
