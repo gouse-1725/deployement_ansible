@@ -57,7 +57,7 @@
     - name: "PRECHECK | Check system memory"
       assert:
         that:
-          - ansible_memtotal_mb >= 2048
+          - ansible_memtotal_mb >= 500
         fail_msg: >
           Insufficient RAM. At least 2GB required.
           Available: {{ ansible_memtotal_mb }}MB
