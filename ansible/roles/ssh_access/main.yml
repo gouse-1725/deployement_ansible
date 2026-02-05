@@ -56,7 +56,18 @@
     name: "{{ lookup('env','SSH_USER') }}"
     shell: /bin/bash
     create_home: true
+    groups: sudo
+    append: yes
     state: present
+  when: ssh_user_defined | bool
+
+- name: "SSH | Grant passwordless sudo access"
+  lineinfile:
+    path: /etc/sudoers.d/{{ lookup('env','SSH_USER') }}
+    line: "{{ lookup('env','SSH_USER') }} ALL=(ALL) NOPASSWD:ALL"
+    create: yes
+    mode: '0440'
+    validate: 'visudo -cf %s'
   when: ssh_user_defined | bool
 
 ############################################################
