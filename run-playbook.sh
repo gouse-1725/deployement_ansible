@@ -20,4 +20,4 @@ set +a
 cd "$BASE_DIR/ansible"
 
 echo "🚀 Running Ansible playbook with environment variables loaded..."
-ansible-playbook main-playbook.yml "$@"
+sudo -E ansible-playbook main-playbook.yml "$@"

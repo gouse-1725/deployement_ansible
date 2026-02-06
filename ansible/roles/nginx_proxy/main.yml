@@ -45,15 +45,21 @@
     state: stopped
   ignore_errors: true
 
+- name: "NGINX | Determine if SSL should be enabled"
+  set_fact:
+    use_ssl_config: "{{ lookup('env','ENABLE_SSL') | default('false') | lower == 'true' }}"
+
 - name: "NGINX | Check if SSL certificates exist"
   stat:
     path: "/etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/fullchain.pem"
   register: ssl_cert_exists
-  when: lookup('env','NGINX_SERVER_NAME') | length > 0
+  when: 
+    - use_ssl_config | bool
+    - lookup('env','NGINX_SERVER_NAME') | length > 0
 
-- name: "NGINX | Render nginx site configuration (HTTP-only before SSL)"
+- name: "NGINX | Render nginx site configuration"
   template:
-    src: "{% if ssl_cert_exists.stat.exists | default(false) %}nginx.conf.j2{% else %}nginx-http-only.conf.j2{% endif %}"
+    src: "{% if use_ssl_config and ssl_cert_exists.stat.exists | default(false) %}nginx.conf.j2{% else %}nginx-http-only.conf.j2{% endif %}"
     dest: "/etc/nginx/sites-available/{{ lookup('env','APP_NAME') }}"
     owner: root
     group: root

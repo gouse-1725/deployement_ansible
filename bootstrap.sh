@@ -136,13 +136,12 @@ echo "🚀 Starting Ansible deployment..."
 
 cd "$ANSIBLE_DIR"
 
-# Variables already exported at the top via 'set -a; source config.env; set +a'
-# Non-interactive, predictable execution with optional tags
+# Export environment variables and run ansible with sudo preserving env
 if [[ $# -gt 0 ]]; then
   echo "Running with arguments: $@"
-  ansible-playbook main-playbook.yml "$@"
+  sudo -E ansible-playbook main-playbook.yml "$@"
 else
-  ansible-playbook main-playbook.yml
+  sudo -E ansible-playbook main-playbook.yml
 fi
 
 echo "=========================================="
