@@ -363,6 +363,14 @@
     group: root
     mode: "0700"
 
+- name: "INFRA | Create NGINX log directory"
+  file:
+    path: /var/log/nginx
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 ############################################################
 # 12. CONFIGURE FIREWALL (UFW)
 ############################################################
