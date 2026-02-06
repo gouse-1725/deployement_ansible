@@ -363,13 +363,20 @@
     group: root
     mode: "0700"
 
-- name: "INFRA | Create NGINX log directory"
+- name: "INFRA | Create NGINX log directories from config paths"
   file:
-    path: /var/log/nginx
+    path: "{{ item | dirname }}"
     state: directory
     owner: root
     group: root
     mode: "0755"
+    recurse: yes
+  loop:
+    - "{{ lookup('env','NGINX_ACCESS_LOG') }}"
+    - "{{ lookup('env','NGINX_ERROR_LOG') }}"
+    - "{{ lookup('env','NGINX_MINIO_ACCESS_LOG') }}"
+    - "{{ lookup('env','NGINX_MINIO_ERROR_LOG') }}"
+  when: item | length > 0
 
 ############################################################
 # 12. CONFIGURE FIREWALL (UFW)
