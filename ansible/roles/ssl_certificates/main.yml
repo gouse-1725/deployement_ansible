@@ -109,18 +109,27 @@
     owner: root
     group: root
     mode: "0644"
+  when: 
+    - lookup('env','NGINX_SERVER_NAME') | length > 0
+    - cert_exists.stat.exists
 
 - name: "SSL | Validate nginx configuration with SSL"
   command: nginx -t
   register: nginx_ssl_test
   changed_when: false
   failed_when: nginx_ssl_test.rc != 0
+  when: 
+    - lookup('env','NGINX_SERVER_NAME') | length > 0
+    - cert_exists.stat.exists
 
 - name: "SSL | Restart nginx to apply SSL configuration"
   service:
     name: nginx
     state: restarted
     enabled: true
+  when: 
+    - lookup('env','NGINX_SERVER_NAME') | length > 0
+    - cert_exists.stat.exists
 
 ############################################################
 # 9. FINAL STATUS
