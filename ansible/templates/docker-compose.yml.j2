@@ -94,8 +94,8 @@ services:
     image: {{ lookup('env','MINIO_IMAGE') }}
     container_name: {{ lookup('env','MINIO_CONTAINER_NAME') }}
     ports:
-      - "{{ lookup('env','MINIO_PORT') }}:9000"
-      - "{{ lookup('env','MINIO_CONSOLE_PORT') }}:9001"
+      - "127.0.0.1:{{ lookup('env','MINIO_PORT') }}:9000"
+      - "127.0.0.1:{{ lookup('env','MINIO_CONSOLE_PORT') }}:9001"
     restart: unless-stopped
     volumes:
       - "{{ lookup('env','MINIO_DATA_DIR') }}:/data"
