@@ -1,76 +1,24 @@
 #############################################
-# APPLICATION + MINIO HTTPS
+# APPLICATION HTTPS
 #############################################
 server {
     server_name {{ lookup('env','NGINX_SERVER_NAME') }};
 
+    # Access and error logs
     access_log {{ lookup('env','NGINX_ACCESS_LOG') | default('/var/log/nginx/pathflowdx_access.log') }};
     error_log {{ lookup('env','NGINX_ERROR_LOG') | default('/var/log/nginx/pathflowdx_error.log') }};
 
-    client_max_body_size {{ lookup('env','NGINX_CLIENT_MAX_BODY_SIZE') | default('0') }};
-    proxy_request_buffering {{ lookup('env','NGINX_PROXY_REQUEST_BUFFERING') | default('off') }};
-    proxy_buffering {{ lookup('env','NGINX_PROXY_BUFFERING') | default('off') }};
-    proxy_max_temp_file_size {{ lookup('env','NGINX_PROXY_MAX_TEMP_FILE_SIZE') | default('0') }};
+    # Upload settings
+    client_max_body_size {{ lookup('env','NGINX_CLIENT_MAX_BODY_SIZE') | default('100m') }};
 
-    #################################################
-    # MINIO CONSOLE
-    #################################################
-    location /minio-console/ {
-        proxy_pass http://127.0.0.1:{{ lookup('env','MINIO_CONSOLE_PORT') }}/;
-        proxy_set_header Host $http_host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket support for MinIO Console
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-
-        proxy_connect_timeout {{ lookup('env','NGINX_PROXY_CONNECT_TIMEOUT') | default('600') }}s;
-        proxy_send_timeout {{ lookup('env','NGINX_PROXY_SEND_TIMEOUT') | default('600') }}s;
-        proxy_read_timeout {{ lookup('env','NGINX_PROXY_READ_TIMEOUT') | default('600') }}s;
-    }
-
-    #################################################
-    # MINIO API
-    #################################################
-    location /minio-api/ {
-
-        if ($request_method = 'OPTIONS') {
-            add_header 'Access-Control-Allow-Origin' '$http_origin' always;
-            add_header 'Access-Control-Allow-Methods' '{{ lookup('env','NGINX_CORS_ALLOW_METHODS') | default('GET, POST, PUT, DELETE, OPTIONS') }}' always;
-            add_header 'Access-Control-Allow-Headers' '$http_access_control_request_headers' always;
-            add_header 'Access-Control-Max-Age' {{ lookup('env','NGINX_CORS_MAX_AGE') | default('3600') }} always;
-            add_header 'Content-Type' 'text/plain; charset=utf-8';
-            add_header 'Content-Length' 0;
-            return 204;
-        }
-
-        proxy_pass http://127.0.0.1:{{ lookup('env','MINIO_PORT') }}/;
-        proxy_set_header Host $http_host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-
-        proxy_connect_timeout {{ lookup('env','NGINX_PROXY_CONNECT_TIMEOUT') | default('600') }}s;
-        proxy_send_timeout {{ lookup('env','NGINX_PROXY_SEND_TIMEOUT') | default('600') }}s;
-        proxy_read_timeout {{ lookup('env','NGINX_PROXY_READ_TIMEOUT') | default('600') }}s;
-    }
-
-    #################################################
-    # APPLICATION (MUST BE LAST - CATCH ALL)
-    #################################################
     location / {
         proxy_pass http://127.0.0.1:{{ lookup('env','APP_PORT') }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-
+        
+        # Proxy timeouts
         proxy_connect_timeout {{ lookup('env','NGINX_PROXY_CONNECT_TIMEOUT') | default('600') }}s;
         proxy_send_timeout {{ lookup('env','NGINX_PROXY_SEND_TIMEOUT') | default('600') }}s;
         proxy_read_timeout {{ lookup('env','NGINX_PROXY_READ_TIMEOUT') | default('600') }}s;
