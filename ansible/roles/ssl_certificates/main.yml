@@ -132,7 +132,80 @@
     - cert_exists.stat.exists
 
 ############################################################
-# 9. FINAL STATUS
+# 9. COPY CERTIFICATES TO MINIO CERTS DIRECTORY
+############################################################
+
+- name: "SSL | Ensure MinIO certs directory exists"
+  file:
+    path: "{{ lookup('env','MINIO_CERTS_DIR') }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    recurse: yes
+
+- name: "SSL | Copy SSL certificate to MinIO (public.crt)"
+  copy:
+    src: "/etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/fullchain.pem"
+    dest: "{{ lookup('env','MINIO_CERTS_DIR') }}/public.crt"
+    remote_src: yes
+    owner: root
+    group: root
+    mode: "0644"
+  when: cert_exists.stat.exists or cert_key.stat.exists
+  register: minio_public_cert
+
+- name: "SSL | Copy SSL private key to MinIO (private.key)"
+  copy:
+    src: "/etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/privkey.pem"
+    dest: "{{ lookup('env','MINIO_CERTS_DIR') }}/private.key"
+    remote_src: yes
+    owner: root
+    group: root
+    mode: "0600"
+  when: cert_exists.stat.exists or cert_key.stat.exists
+  register: minio_private_key
+
+- name: "SSL | MinIO SSL certificates copied"
+  debug:
+    msg: "SSL certificates copied to MinIO certs directory"
+  when: minio_public_cert.changed or minio_private_key.changed
+
+############################################################
+# 10. CREATE CERTBOT RENEWAL HOOK FOR MINIO
+############################################################
+
+- name: "SSL | Create Certbot renewal hook directory"
+  file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    recurse: yes
+
+- name: "SSL | Create renewal hook script for MinIO"
+  copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/minio-cert-update.sh
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/bash
+      # Copy renewed certificates to MinIO
+      cp /etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/fullchain.pem {{ lookup('env','MINIO_CERTS_DIR') }}/public.crt
+      cp /etc/letsencrypt/live/{{ lookup('env','NGINX_SERVER_NAME') }}/privkey.pem {{ lookup('env','MINIO_CERTS_DIR') }}/private.key
+      chmod 644 {{ lookup('env','MINIO_CERTS_DIR') }}/public.crt
+      chmod 600 {{ lookup('env','MINIO_CERTS_DIR') }}/private.key
+      # Restart MinIO container to reload certificates
+      docker restart {{ lookup('env','MINIO_CONTAINER_NAME') }} 2>/dev/null || true
+
+- name: "SSL | Certbot renewal hook created"
+  debug:
+    msg: "Renewal hook will automatically update MinIO certificates"
+
+############################################################
+# 11. FINAL STATUS
 ############################################################
 
 - name: "SSL | SSL certificate configured successfully"
@@ -141,3 +214,5 @@
       - "SSL certificate ready for {{ lookup('env','NGINX_SERVER_NAME') }}"
       - "Auto-renewal enabled"
       - "Nginx reloaded with HTTPS"
+      - "MinIO SSL certificates configured"
+      - "Renewal hook created for automatic updates"
