@@ -99,14 +99,11 @@ services:
     restart: unless-stopped
     volumes:
       - "{{ lookup('env','MINIO_DATA_DIR') }}:/data"
-      - "{{ lookup('env','MINIO_CERTS_DIR') }}:/root/.minio/certs"
       - "{{ lookup('env','MINIO_CONFIG_DIR') }}:/root/.minio"
     command:
       - server
       - --console-address
       - ":9001"
-      - --certs-dir
-      - /root/.minio/certs
       - /data
     environment:
       MINIO_ROOT_USER: "{{ lookup('env','MINIO_ROOT_USER') }}"
