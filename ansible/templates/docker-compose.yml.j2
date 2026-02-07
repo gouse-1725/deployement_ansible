@@ -7,10 +7,12 @@ services:
     container_name: {{ lookup('env','APP_CONTAINER_NAME') }}
     ports:
       - "{{ lookup('env','APP_PORT') }}:8080"
+    extra_hosts:
+    - "{{ lookup('env','NGINX_SERVER_NAME') }}:host-gateway"
     restart: {{ lookup('env','APP_RESTART_POLICY') }}
     environment:
-      USERNAME: {{ lookup('env','APP_USERNAME') }}
-      PASSWORD: {{ lookup('env','APP_PASSWORD') }}
+      USERNAME: "{{ lookup('env','APP_USERNAME') }}"
+      PASSWORD: "{{ lookup('env','APP_PASSWORD') }}"
       verma.orgId: "{{ lookup('env','ORG_ID') }}"
       maximumSessions: "{{ lookup('env','MAXIMUM_SESSIONS') }}"
       list.of.hostNames: "{{ lookup('env','LIST_OF_HOSTNAMES') }}"
@@ -26,9 +28,9 @@ services:
       cloud_storage: "{{ lookup('env','DZI_STORAGE_TYPE') }}"
 
       s3Region: "{{ lookup('env','AWS_DEFAULT_REGION') }}"
-      s3EndPoint: "{{ lookup('env','AWS_ENDPOINT') }}"
-      S3_END_POINT_FINE_UPLOADER: "{{ lookup('env','AWS_ENDPOINT') }}"
-      s3ServiceEndPoint: "{{ lookup('env','MINIO_SERVER_URL') }}"
+      s3EndPoint: "{{ lookup('env','S3_ENDPOINT') }}"
+      S3_END_POINT_FINE_UPLOADER: "{{ lookup('env','S3_ENDPOINT_FINE_UPLOADER') }}"
+      s3ServiceEndPoint: "{{ lookup('env','S3_SERVICE_ENDPOINT') }}"
 
       LOGGING_FILE_NAME: "{{ lookup('env','APP_LOG_FILE') }}"
       LOGGING_FILE_PATTERN: "{{ lookup('env','APP_LOG_PATTERN') }}"
@@ -53,9 +55,9 @@ services:
       - "{{ lookup('env','DB_PORT') }}:5432"
     restart: {{ lookup('env','DB_RESTART_POLICY') }}
     environment:
-      POSTGRES_PASSWORD: {{ lookup('env','DB_PASSWORD') }}
-      POSTGRES_USER: {{ lookup('env','DB_USER') }}
-      POSTGRES_DB: {{ lookup('env','DB_NAME') }}
+      POSTGRES_PASSWORD: "{{ lookup('env','DB_PASSWORD') }}"
+      POSTGRES_USER: "{{ lookup('env','DB_USER') }}"
+      POSTGRES_DB: "{{ lookup('env','DB_NAME') }}"
     volumes:
       - {{ lookup('env','DB_VOLUME_NAME') }}:/var/lib/postgresql/data
     networks:
@@ -64,6 +66,8 @@ services:
   dzi:
     image: {{ lookup('env','DZI_IMAGE') }}
     container_name: {{ lookup('env','DZI_CONTAINER_NAME') }}
+    extra_hosts:
+      - "{{ lookup('env','NGINX_SERVER_NAME') }}:host-gateway"
     depends_on:
       - app
     restart: unless-stopped
@@ -75,7 +79,7 @@ services:
       MINIO_ENDPOINT_REPLACEMENT_IN_URL: "{{ lookup('env','MINIO_ENDPOINT_REPLACEMENT') }}"
       AWS_ACCESS_KEY_ID: "{{ lookup('env','AWS_ACCESS_KEY_ID') }}"
       AWS_SECRET_ACCESS_KEY: "{{ lookup('env','AWS_SECRET_ACCESS_KEY') }}"
-      AWS_BUCKET: "{{ lookup('env','AWS_BUCKET') }}"
+      AWS_BUCKET: "{{ lookup('env','MINIO_BUCKET') }}"
       MINIO_ALIAS: "{{ lookup('env','MINIO_ALIAS') }}"
       BASE_URL: "{{ lookup('env','DZI_BASE_URL') }}"
       STORAGE_TYPE: "{{ lookup('env','DZI_STORAGE_TYPE') }}"

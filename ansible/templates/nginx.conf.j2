@@ -76,7 +76,7 @@ server {
         }
 
         # Proxy to MinIO Container
-        proxy_pass http://127.0.0.1:{{ lookup('env','MINIO_PORT') }}/;
+        proxy_pass http://127.0.0.1:{{ lookup('env','MINIO_PORT') }};
 
         # CRITICAL HOST HEADER - keeps the port so MinIO signature matches
         proxy_set_header Host $http_host;
