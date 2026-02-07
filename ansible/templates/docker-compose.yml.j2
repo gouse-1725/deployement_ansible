@@ -108,9 +108,6 @@ services:
     environment:
       MINIO_ROOT_USER: "{{ lookup('env','MINIO_ROOT_USER') }}"
       MINIO_ROOT_PASSWORD: "{{ lookup('env','MINIO_ROOT_PASSWORD') }}"
-      {% if lookup('env','MINIO_SERVER_URL') | length > 0 %}
-      MINIO_SERVER_URL: "{{ lookup('env','MINIO_SERVER_URL') }}"
-      {% endif %}
       MINIO_BROWSER_REDIRECT_URL: "https://{{ lookup('env','NGINX_SERVER_NAME') }}:9001"
       MINIO_API_CORS: "{{ lookup('env','MINIO_API_CORS') }}"
       MINIO_API_CORS_ALLOWED_ORIGINS: "{{ lookup('env','MINIO_API_CORS') }}"
